@@ -12,8 +12,9 @@ import {
   AlertTriangle, CheckCircle, Clock, Package, TrendingUp,
   Calendar, Bell, RefreshCw, User, LogOut, Truck,
   ClipboardList, BarChart2, AlertCircle, FileText, PlusCircle, Users,
-  History
+  History, BellOff
 } from 'lucide-react'
+import { useFCM } from './useFCM'
 
 const API_KEY        = import.meta.env.VITE_GOOGLE_API_KEY
 const SPREADSHEET_ID = import.meta.env.VITE_SPREADSHEET_ID
@@ -141,6 +142,11 @@ export default function App() {
   const [ultimaAtualizacao, setUltimaAtualizacao]     = useState(null)
   const [perfilAprovacao, setPerfilAprovacao]         = useState('COORDENADOR')
   const [conferentes]                                 = useConferentes()
+  const [mostrarNotif, setMostrarNotif]               = useState(false)
+
+  // FCM — só ativa para coordenador e gerente
+  const { permissao, notificacoes, marcarLida, limparNotificacoes, solicitarPermissao } = useFCM(usuario)
+  const notifNaoLidas = notificacoes.filter(n => !n.lida).length
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, user => {
@@ -217,6 +223,7 @@ export default function App() {
 
   const abasPerfil = usuario ? (ABAS_POR_PERFIL[usuario.perfil] || ['dashboard']) : ['dashboard']
   const semFiltro  = ['entrada', 'conferentes', 'historico']
+  const podeNotif  = ['COORDENADOR', 'GERENTE'].includes(usuario?.perfil)
 
   if (verificando) return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16 }}>
@@ -248,12 +255,74 @@ export default function App() {
           <button onClick={carregarDados} disabled={carregando} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
             <RefreshCw size={13} style={{ animation: carregando ? 'spin 1s linear infinite' : 'none' }} /> Atualizar
           </button>
-          {totalAlertas > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--yellow-dim)', border: '1px solid var(--yellow)', borderRadius: 8, padding: '5px 10px' }}>
-              <Bell size={13} color="var(--yellow)" />
-              <span style={{ fontSize: 12, color: 'var(--yellow)', fontWeight: 700 }}>{totalAlertas}</span>
-            </div>
+
+          {/* Botão ativar notificações */}
+          {podeNotif && permissao !== 'granted' && (
+            <button onClick={solicitarPermissao} style={{
+              background: 'var(--yellow-dim)', border: '1px solid var(--yellow)', borderRadius: 8,
+              padding: '5px 10px', cursor: 'pointer', color: 'var(--yellow)',
+              fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5,
+            }}>
+              <Bell size={12} /> Ativar notificações
+            </button>
           )}
+
+          {/* Sino de alertas + dropdown de notificações */}
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => setMostrarNotif(v => !v)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                background: (totalAlertas > 0 || notifNaoLidas > 0) ? 'var(--yellow-dim)' : 'none',
+                border: `1px solid ${(totalAlertas > 0 || notifNaoLidas > 0) ? 'var(--yellow)' : 'var(--border)'}`,
+                borderRadius: 8, padding: '5px 10px', cursor: 'pointer',
+              }}
+            >
+              <Bell size={13} color={(totalAlertas > 0 || notifNaoLidas > 0) ? 'var(--yellow)' : 'var(--text-muted)'} />
+              {(totalAlertas + notifNaoLidas) > 0 && (
+                <span style={{ fontSize: 12, color: 'var(--yellow)', fontWeight: 700 }}>
+                  {totalAlertas + notifNaoLidas}
+                </span>
+              )}
+            </button>
+
+            {/* Dropdown de notificações FCM */}
+            {mostrarNotif && notificacoes.length > 0 && (
+              <div style={{
+                position: 'absolute', top: 40, right: 0, width: 320, zIndex: 100,
+                background: 'var(--bg-card)', border: '1px solid var(--border)',
+                borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.4)', overflow: 'hidden',
+              }}>
+                <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>Notificações</span>
+                  <button onClick={() => { limparNotificacoes(); setMostrarNotif(false) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 11 }}>
+                    Limpar
+                  </button>
+                </div>
+                <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                  {notificacoes.map(n => (
+                    <div key={n.id} onClick={() => { marcarLida(n.id); setMostrarNotif(false); setAbaSelecionada('aprovacao') }}
+                      style={{
+                        padding: '12px 16px', borderBottom: '1px solid var(--border)', cursor: 'pointer',
+                        background: n.lida ? 'transparent' : 'var(--yellow-dim)',
+                        transition: 'background 0.15s',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                      onMouseLeave={e => e.currentTarget.style.background = n.lida ? 'transparent' : 'var(--yellow-dim)'}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ fontSize: 13, fontWeight: n.lida ? 400 : 700, color: 'var(--text-primary)', marginBottom: 3 }}>{n.title}</div>
+                        {!n.lida && <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--yellow)', flexShrink: 0, marginTop: 4 }} />}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{n.body}</div>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>{n.ts}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, borderLeft: '1px solid var(--border)', paddingLeft: 12 }}>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: 12, fontWeight: 600 }}>{usuario.email.split('@')[0]}</div>
