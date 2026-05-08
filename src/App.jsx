@@ -425,7 +425,7 @@ export default function App() {
         )}
 
         <div className="fade-in">
-          {abaSelecionada === 'entrada'     && <EntradaDados conferentes={conferentes} onDadosSalvos={carregarDados} />}
+          {abaSelecionada === 'entrada' && <EntradaDados usuario={usuario} conferentes={conferentes} onDadosSalvos={carregarDados} />}
           {abaSelecionada === 'conferentes' && <Conferentes />}
           {abaSelecionada === 'historico'   && <DashboardHistorico dadosRecentes={dados} />}
 
