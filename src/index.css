@@ -46,3 +46,56 @@ body {
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
 .fade-in { animation: fadeIn 0.3s ease; }
+/* ─── RESPONSIVIDADE MOBILE ─────────────────────── */
+@media (max-width: 768px) {
+
+  /* Header */
+  .header-logo span { display: none; }
+
+  /* Padding geral */
+  div[style*="padding: '24px 32px'"] { padding: 16px !important; }
+
+  /* Cards de métrica — 2 colunas no mobile */
+  div[style*="repeat(4, 1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  /* Gráficos — full width */
+  div[style*="2fr 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Tabela — scroll horizontal */
+  table { font-size: 11px !important; }
+  th, td { padding: 8px 10px !important; }
+
+  /* Navegação — scroll horizontal */
+  nav, div[style*="overflowX: 'auto'"] {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Header — ocultar textos secundários */
+  .header-update { display: none !important; }
+}
+
+@media (max-width: 480px) {
+  /* Cards — 1 coluna em telas muito pequenas */
+  div[style*="repeat(4, 1fr)"],
+  div[style*="repeat(5, 1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Font sizes menores */
+  div[style*="fontSize: 36"] { font-size: 28px !important; }
+  div[style*="fontSize: 28"] { font-size: 22px !important; }
+}
+
+/* Previne zoom em inputs no iOS */
+input, select, textarea {
+  font-size: 16px !important;
+}
+
+/* Touch targets maiores */
+button { min-height: 40px; }
