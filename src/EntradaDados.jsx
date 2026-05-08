@@ -308,45 +308,49 @@ export default function EntradaDados({ conferentes = [], onDadosSalvos }) {
   }
 
   async function salvarNoSheets(docas) {
-    setSalvando(true); setErro('')
-    try {
-      const hoje    = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
-      const abaHoje = hoje.split('/').reverse().join('-')
-      const SHEET_ID = import.meta.env.VITE_SPREADSHEET_ID
-      const API_KEY  = import.meta.env.VITE_GOOGLE_API_KEY
+  setSalvando(true); setErro('')
+  try {
+    const hoje    = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+    const abaHoje = hoje.split('/').reverse().join('-')
+    const WEBAPP_URL = import.meta.env.VITE_APPS_SCRIPT_URL
 
-      const linhas = docas.map(d => {
-        const v   = validacoes[d.doca]
-        const pExp    = Number(v.pendExp    || 0)
-        const pFrente = Number(v.pendFrente || 0)
-        const pDentro = Number(v.pendDentro || 0)
-        const resultado = pExp - pFrente - pDentro
-        return [
-          d.data || hoje, d.doca, d.remessa, d.horario,
-          v.valDoca,
-          pExp, pFrente, pDentro,
-          Number(v.logExp) || 0, Number(v.logFrente) || 0, Number(v.logDentro) || 0,
-          v.hrValidado, v.conferente, v.hrLiberado,
-          d.supervisor, d.gpp, '', '', d.turno, v.observacao,
-          resultado,
-          v.hrLiberado ? 'SIM' : resultado <= 0 ? 'SIM' : 'NÃO',
-          resultado <= 0 ? 'VALIDADO' : 'PENDENTE',
-          '',
-        ]
-      })
+    const linhas = docas.map(d => {
+      const v   = validacoes[d.doca]
+      const pExp    = Number(v.pendExp    || 0)
+      const pFrente = Number(v.pendFrente || 0)
+      const pDentro = Number(v.pendDentro || 0)
+      const resultado = pExp - pFrente - pDentro
+      return [
+        d.data || hoje, d.doca, d.remessa, d.horario,
+        v.valDoca,
+        pExp, pFrente, pDentro,
+        Number(v.logExp) || 0, Number(v.logFrente) || 0, Number(v.logDentro) || 0,
+        v.hrValidado, v.conferente, v.hrLiberado,
+        d.supervisor, d.gpp, '', '', d.turno, v.observacao,
+        resultado,
+        v.hrLiberado ? 'SIM' : resultado <= 0 ? 'SIM' : 'NÃO',
+        resultado <= 0 ? 'VALIDADO' : 'PENDENTE',
+        '',
+      ]
+    })
 
-      const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(abaHoje)}:append?valueInputOption=USER_ENTERED&key=${API_KEY}`
-      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values: linhas }) })
-      if (!res.ok) throw new Error((await res.json())?.error?.message || 'Erro ao salvar')
+    const res = await fetch(WEBAPP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ abaHoje, linhas }),
+    })
 
-      sessionStorage.removeItem('gpp_v2')
-      setTela('sucesso')
-      if (onDadosSalvos) onDadosSalvos()
-    } catch (e) {
-      setErro(`Erro ao salvar: ${e.message}`)
-    }
-    setSalvando(false)
+    const data = await res.json()
+    if (!data.ok) throw new Error(data.erro || 'Erro ao salvar')
+
+    sessionStorage.removeItem('gpp_v2')
+    setTela('sucesso')
+    if (onDadosSalvos) onDadosSalvos()
+  } catch (e) {
+    setErro(`Erro ao salvar: ${e.message}`)
   }
+  setSalvando(false)
+}
 
   function reiniciar() {
     sessionStorage.removeItem('gpp_v2')
