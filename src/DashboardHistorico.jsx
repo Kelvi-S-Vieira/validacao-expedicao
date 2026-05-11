@@ -248,7 +248,7 @@ export default function DashboardHistorico({ dadosRecentes = [] }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 16 }}>
-        {ano === '2025' ? [
+        {(ano === '2025' ? [
           { label: 'Total 2025',        valor: total2025.toLocaleString('pt-BR'),   cor: '#3b82f6', sub: 'veículos expedidos' },
           { label: 'Com pendências',    valor: comPend2025.toLocaleString('pt-BR'), cor: '#f97316', sub: `${Math.round(comPend2025/total2025*100)}% do total` },
           { label: 'Críticos (≥5)',     valor: mais5_2025.toLocaleString('pt-BR'),  cor: '#ef4444', sub: `${Math.round(mais5_2025/total2025*100)}% do total` },
@@ -258,7 +258,7 @@ export default function DashboardHistorico({ dadosRecentes = [] }) {
           { label: 'Com pendências',    valor: comPend2026.toLocaleString('pt-BR'), cor: '#f97316', sub: `${Math.round(comPend2026/total2026*100)}% do total` },
           { label: 'Críticos (≥5)',     valor: mais5_2026.toLocaleString('pt-BR'),  cor: '#ef4444', sub: `${Math.round(mais5_2026/total2026*100)}% do total` },
           { label: `Melhor mês — ${melhorMes2026.mes.toUpperCase()}`, valor: `${melhorMes2026.pct}%`, cor: '#22c55e', sub: 'menor % com pendências' },
-        ].map((c, i) => (
+        ]).map((c, i) => (
           <div key={i} style={{ background: 'var(--bg-card)', borderRadius: 12, padding: '14px 16px', border: `1px solid ${c.cor}33`, position: 'relative', overflow: 'hidden' }}>
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: c.cor }} />
             <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>{c.label}</div>
