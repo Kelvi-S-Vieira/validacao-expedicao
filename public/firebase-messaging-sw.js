@@ -28,8 +28,21 @@ messaging.onBackgroundMessage(payload => {
 
 self.addEventListener('notificationclick', event => {
   event.notification.close()
-  const url = event.action === 'aprovar' || event.action === 'rejeitar'
-    ? '/?acao=' + event.action + '&doca=' + (event.notification.data?.doca || '')
-    : '/'
-  event.waitUntil(clients.openWindow(url))
+  const doca = event.notification.data?.doca || ''
+  const url  = event.action === 'aprovar'
+    ? `https://validacao-expedicao.vercel.app/?aba=aprovacao&doca=${doca}`
+    : `https://validacao-expedicao.vercel.app/?aba=aprovacao`
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+      for (const client of clientList) {
+        if (client.url.includes('validacao-expedicao.vercel.app')) {
+          client.focus()
+          client.postMessage({ type: 'ABRIR_APROVACAO', doca })
+          return
+        }
+      }
+      return clients.openWindow(url)
+    })
+  )
 })

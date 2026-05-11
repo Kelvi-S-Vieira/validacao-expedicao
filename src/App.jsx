@@ -592,7 +592,7 @@ export default function App() {
                       ))}
                     </div>
                   </div>
-                  <Aprovacao dados={dadosFiltrados} perfil={perfilAprovacao} onAprovar={handleAprovar} onRejeitar={handleRejeitar} />
+                  <Aprovacao usuario={usuario} dados={dadosFiltrados} perfil={perfilAprovacao} onAprovar={handleAprovar} onRejeitar={handleRejeitar} />
                 </div>
               )}
 
