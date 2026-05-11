@@ -228,6 +228,12 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
     const resultado = pExp - pFrente - pDentro
     const tempo     = calcularTempo(docaObj?.hrInicio, agora)
 
+    // ── Log resultado ──
+    const lExp       = Number(valLocal.logExp    || 0)
+    const lFrente    = Number(valLocal.logFrente || 0)
+    const lDentro    = Number(valLocal.logDentro || 0)
+    const logResult  = lExp - lFrente - lDentro
+
     // ── Concatena CARGA CERTIFICADA na observação ──
     const obsPartes = [
       valLocal.cargaCertificada ? 'CARGA CERTIFICADA' : '',
@@ -235,10 +241,11 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
     ].filter(Boolean)
     const observacaoFinal = obsPartes.join(' - ')
 
+    // ── Regra: Log >= 1 ou Pendência >= 5 → gerente direto ──
     let novoStatus = 'CONCLUIDO'
     let tsAlerta   = null
-    if (resultado >= 5)      { novoStatus = 'AGUARD_GERENTE'; tsAlerta = new Date() }
-    else if (resultado >= 3) { novoStatus = 'AGUARD_COORD';   tsAlerta = new Date() }
+    if (logResult >= 1 || resultado >= 5) { novoStatus = 'AGUARD_GERENTE'; tsAlerta = new Date() }
+    else if (resultado >= 3)              { novoStatus = 'AGUARD_COORD';   tsAlerta = new Date() }
 
     try {
       await finalizarDoca(docaAtiva, {
@@ -382,9 +389,19 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
     const pDentro     = Number(valLocal.pendDentro || 0)
     const resultado   = pExp - pFrente - pDentro
     const preenchido  = valLocal.conferente && valLocal.pendExp !== '' && valLocal.pendFrente !== '' && valLocal.pendDentro !== ''
-    const podeLiberar   = preenchido && resultado < 3
-    const podeSolicitar = preenchido && resultado >= 3
-    const corRes        = resultado >= 5 ? 'var(--red)' : resultado >= 3 ? 'var(--yellow)' : 'var(--green)'
+    // Log resultado em tempo real
+    const lExp      = Number(valLocal.logExp    || 0)
+    const lFrente   = Number(valLocal.logFrente || 0)
+    const lDentro   = Number(valLocal.logDentro || 0)
+    const logResult = lExp - lFrente - lDentro
+    const logPreench = valLocal.logExp !== '' && valLocal.logFrente !== '' && valLocal.logDentro !== ''
+
+    // Regra final: log >= 1 ou pend >= 5 → gerente | pend 3-4 → coord | ambos ok → libera
+    const alertaGerente = resultado >= 5 || (logPreench && logResult >= 1)
+    const alertaCoord   = !alertaGerente && resultado >= 3
+    const podeLiberar   = preenchido && logPreench && !alertaGerente && !alertaCoord
+    const podeSolicitar = preenchido && logPreench && (alertaGerente || alertaCoord)
+    const corRes        = alertaGerente ? 'var(--red)' : alertaCoord ? 'var(--yellow)' : 'var(--green)'
 
     return (
       <div style={{ maxWidth: 680, margin: '0 auto', padding: '0 16px' }}>
@@ -490,11 +507,39 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
 
             {/* Log */}
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Log localizado</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
-              <Campo label="Log Expedição"   valor={valLocal.logExp}    onChange={v => setValLocal(p => ({ ...p, logExp: v }))} />
-              <Campo label="Log Frente"      valor={valLocal.logFrente} onChange={v => setValLocal(p => ({ ...p, logFrente: v }))} />
-              <Campo label="Log Dentro"      valor={valLocal.logDentro} onChange={v => setValLocal(p => ({ ...p, logDentro: v }))} />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12 }}>
+              <div>
+                <Campo label="Log Expedição" valor={valLocal.logExp}    onChange={v => setValLocal(p => ({ ...p, logExp: v }))} />
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>Total no log</div>
+              </div>
+              <div>
+                <Campo label="Log Frente"    valor={valLocal.logFrente} onChange={v => setValLocal(p => ({ ...p, logFrente: v }))} />
+                <div style={{ fontSize: 10, color: 'var(--green)', marginTop: 3 }}>Localizado frente</div>
+              </div>
+              <div>
+                <Campo label="Log Dentro"    valor={valLocal.logDentro} onChange={v => setValLocal(p => ({ ...p, logDentro: v }))} />
+                <div style={{ fontSize: 10, color: 'var(--green)', marginTop: 3 }}>Localizado dentro</div>
+              </div>
             </div>
+
+            {/* Log resultado em tempo real */}
+            {logPreench && (
+              <div style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: '12px 16px', marginBottom: 16, border: `1px solid ${logResult >= 1 ? 'var(--red)' : 'var(--green)'}44` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{lExp} − {lFrente} − {lDentro} =</span>
+                    <span style={{ fontSize: 24, fontWeight: 900, color: logResult >= 1 ? 'var(--red)' : 'var(--green)' }}>{logResult}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>log resultado</span>
+                  </div>
+                  {logResult === 0 && <span style={{ fontSize: 11, color: 'var(--green)', background: 'var(--green-dim)', padding: '3px 10px', borderRadius: 20, fontWeight: 700 }}>✅ Log ok</span>}
+                  {logResult >= 1 && (
+                    <div style={{ background: 'var(--red-dim)', border: '1px solid var(--red)', borderRadius: 8, padding: '5px 10px' }}>
+                      <div style={{ fontSize: 11, color: 'var(--red)', fontWeight: 700 }}>🚨 Log com divergência — requer gerente</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Hr Liberado */}
             <div style={{ marginBottom: 16 }}>
@@ -583,8 +628,11 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
                 </button>
               )}
               {podeSolicitar && (
-                <button onClick={handleSolicitar} style={{ padding: '14px', borderRadius: 10, border: 'none', background: resultado >= 5 ? 'var(--red)' : 'var(--orange)', color: '#fff', fontWeight: 800, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                  <Send size={18} /> {resultado >= 5 ? 'Solicitar — Gerente' : 'Solicitar — Coordenador'}
+                <button onClick={handleSolicitar} style={{ padding: '14px', borderRadius: 10, border: 'none', background: alertaGerente ? 'var(--red)' : 'var(--orange)', color: '#fff', fontWeight: 800, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <Send size={18} />
+                  {alertaGerente
+                    ? (logResult >= 1 && resultado < 5 ? 'Solicitar — Gerente (divergência no log)' : 'Solicitar — Gerente')
+                    : 'Solicitar — Coordenador'}
                 </button>
               )}
               {!preenchido && (
