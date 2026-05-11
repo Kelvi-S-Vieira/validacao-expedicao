@@ -140,7 +140,7 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
   const [dragOver, setDragOver]   = useState(false)
   const [processando, setProcessando] = useState(false)
 
-  const ehFiscal    = usuario?.perfil === 'OPERADOR'
+  const ehFiscal    = usuario?.perfil === 'FISCAL'
   const confsAtivos = conferentes.filter(c => c.ativo)
 
   async function processarArquivo(file) {
