@@ -56,7 +56,7 @@ export default function Conferentes() {
   }
 
   function remover(id) {
-    if (!confirm('Remover este conferente?')) return
+    if (!confirm('Remover este fiscal de prevenção?')) return
     setConferentes(prev => prev.filter(c => c.id !== id))
   }
 
@@ -82,16 +82,16 @@ export default function Conferentes() {
   return (
     <div style={{ maxWidth: 640, margin: '0 auto' }}>
       <div style={{ marginBottom: 32 }}>
-        <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>Conferentes</h2>
+        <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>Fiscais de Prevenção</h2>
         <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-          Gerencie a lista de conferentes disponíveis para validação de docas.
+          Gerencie a lista de fiscais de prevenção disponíveis para validação de docas.
         </p>
       </div>
 
       {/* Formulário de adição */}
       <div style={{ background: 'var(--bg-card)', borderRadius: 14, padding: 24, border: '1px solid var(--border)', marginBottom: 20 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 14, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-          Adicionar conferente
+          Adicionar fiscal de prevenção
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 10, alignItems: 'end' }}>
           <div>
@@ -100,7 +100,7 @@ export default function Conferentes() {
               value={novoNome}
               onChange={e => setNovoNome(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && adicionar()}
-              placeholder="Nome do conferente..."
+              placeholder="Nome do fiscal de prevenção..."
               style={{ ...INPUT_STYLE, width: '100%' }}
               onFocus={e => e.target.style.borderColor = 'var(--yellow)'}
               onBlur={e => e.target.style.borderColor = 'var(--border)'}
@@ -137,7 +137,7 @@ export default function Conferentes() {
           <span style={{ fontSize: 13, fontWeight: 700 }}>Ativos ({ativos.length})</span>
         </div>
         {ativos.length === 0 ? (
-          <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Nenhum conferente ativo.</div>
+          <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Nenhum fiscal de prevenção ativo.</div>
         ) : ativos.map(c => (
           <div key={c.id} style={{ padding: '12px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
             {editando === c.id ? (

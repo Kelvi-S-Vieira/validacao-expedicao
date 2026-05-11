@@ -83,15 +83,15 @@ function detectarPerfil(email) {
   if (email.includes('gerente'))     return 'GERENTE'
   if (email.includes('coordenador')) return 'COORDENADOR'
   if (email.includes('analista'))    return 'ANALISTA'
-  return 'OPERADOR'
+  return 'FISCAL'
 }
 
 const COR_PERFIL = {
-  GERENTE: '#ef4444', COORDENADOR: '#f97316', ANALISTA: '#22c55e', OPERADOR: '#3b82f6'
+  GERENTE: '#ef4444', COORDENADOR: '#f97316', ANALISTA: '#22c55e', FISCAL: '#3b82f6'
 }
 
 const ABAS_POR_PERFIL = {
-  OPERADOR:    ['entrada', 'dashboard'],
+  FISCAL:    ['entrada', 'dashboard'],
   COORDENADOR: ['dashboard', 'historico', 'tabela', 'alertas', 'aprovacao', 'conferentes'],
   GERENTE:     ['dashboard', 'historico', 'tabela', 'alertas', 'aprovacao', 'relatorio', 'conferentes'],
   ANALISTA:    ['dashboard', 'historico', 'tabela', 'relatorio'],
@@ -101,7 +101,7 @@ const LABELS = {
   entrada: 'Entrada', dashboard: 'Dashboard',
   historico: 'Histórico', tabela: 'Tabela',
   alertas: 'Alertas', aprovacao: 'Aprovação',
-  relatorio: 'Relatório', conferentes: 'Conferentes',
+  relatorio: 'Relatório', conferentes: 'Fiscais',
 }
 
 const ICONS = {

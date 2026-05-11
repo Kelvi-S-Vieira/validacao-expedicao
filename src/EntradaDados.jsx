@@ -190,7 +190,7 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
   }
 
   async function handleIniciar(doca) {
-    if (!valLocal.conferente) { setErro('Selecione um conferente antes de iniciar.'); return }
+    if (!valLocal.conferente) { setErro('Selecione um fiscal de prevenção antes de iniciar.'); return }
     setErro('')
     try {
       const agora = horarioAtual()
@@ -437,13 +437,13 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
           </div>
 
           <div style={{ padding: '16px' }}>
-            {/* Conferente */}
+            {/* Fiscal de Prevenção */}
             <div style={{ marginBottom: 18 }}>
               <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Conferente <span style={{ color: 'var(--yellow)' }}>*</span>
               </label>
               {confsAtivos.length === 0 ? (
-                <p style={{ fontSize: 13, color: 'var(--red)' }}>⚠️ Nenhum conferente cadastrado.</p>
+                <p style={{ fontSize: 13, color: 'var(--red)' }}>⚠️ Nenhum fiscal de prevenção cadastrado.</p>
               ) : (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {confsAtivos.map(c => (
@@ -697,7 +697,7 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
       {!docaAtiva && (
         <div style={{ background: 'var(--bg-card)', borderRadius: 12, padding: '14px 16px', border: '1px solid var(--border)', marginBottom: 14 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            Quem vai validar?
+            Qual fiscal vai validar?
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {confsAtivos.map(c => (
