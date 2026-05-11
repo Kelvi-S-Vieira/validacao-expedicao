@@ -2,7 +2,7 @@ import { useState } from 'react'
 import {
   FileSpreadsheet, Play, CheckCircle, Clock, AlertTriangle,
   User, ChevronRight, Save, Upload, Lock, Timer, Send,
-  RefreshCw, Trash2
+  RefreshCw, Trash2, ShieldCheck
 } from 'lucide-react'
 import * as XLSX from 'xlsx-js-style'
 import { useSessao } from './useSessao'
@@ -98,7 +98,6 @@ function Campo({ label, valor, onChange, type = 'number', min = '0', readOnly, r
   )
 }
 
-// Countdown visual
 function Countdown({ tsAlerta, onExpirar }) {
   const [restante, setRestante] = useState(() => Math.max(0, 300 - segundosDesde(tsAlerta)))
 
@@ -133,18 +132,17 @@ function Countdown({ tsAlerta, onExpirar }) {
 export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos }) {
   const { sessao, docas, carregando, criarSessao, iniciarDoca, atualizarDoca, finalizarDoca, encerrarSessao } = useSessao(usuario)
 
-  const [tela, setTela]         = useState('lista')   // lista | validar | confirmacao | sucesso
+  const [tela, setTela]           = useState('lista')
   const [docaAtiva, setDocaAtiva] = useState(null)
-  const [valLocal, setValLocal] = useState({})         // estado local do formulário em edição
-  const [erro, setErro]         = useState('')
-  const [salvando, setSalvando] = useState(false)
-  const [dragOver, setDragOver] = useState(false)
+  const [valLocal, setValLocal]   = useState({})
+  const [erro, setErro]           = useState('')
+  const [salvando, setSalvando]   = useState(false)
+  const [dragOver, setDragOver]   = useState(false)
   const [processando, setProcessando] = useState(false)
 
-  const ehFiscal = usuario?.perfil === 'OPERADOR'
+  const ehFiscal    = usuario?.perfil === 'OPERADOR'
   const confsAtivos = conferentes.filter(c => c.ativo)
 
-  // Processa arquivo e cria sessão no Firestore
   async function processarArquivo(file) {
     setErro(''); setProcessando(true)
     const reader = new FileReader()
@@ -167,12 +165,12 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
             const horario = formatarHorario(r[COL.HORARIO])
             docasBase.push({
               doca,
-              remessa:    String(r[COL.REMESSA]     || '').trim(),
+              remessa:    String(r[COL.REMESSA]    || '').trim(),
               data:       formatarData(r[COL.DATA]),
               horario,
-              gpp:        String(r[COL.GPP]         || '').trim(),
-              nomeFilial: String(r[COL.NOME_FILIAL]  || '').trim(),
-              loja:       String(r[COL.LOJA]         || '').trim(),
+              gpp:        String(r[COL.GPP]        || '').trim(),
+              nomeFilial: String(r[COL.NOME_FILIAL] || '').trim(),
+              loja:       String(r[COL.LOJA]        || '').trim(),
               supervisor: detectarSupervisor(r[COL.HORARIO]),
               turno:      detectarSupervisor(r[COL.HORARIO]) === 'Virginia' ? '1º Turno' : '2º Turno',
             })
@@ -180,7 +178,6 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
         }
 
         if (docasBase.length === 0) { setErro('Nenhuma doca encontrada.'); setProcessando(false); return }
-
         await criarSessao(docasBase)
         setTela('lista')
       } catch (err) {
@@ -192,50 +189,51 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
     reader.readAsBinaryString(file)
   }
 
-  // Inicia validação de uma doca
   async function handleIniciar(doca) {
-    if (!valLocal.conferente) {
-      setErro('Selecione um conferente antes de iniciar.')
-      return
-    }
+    if (!valLocal.conferente) { setErro('Selecione um conferente antes de iniciar.'); return }
     setErro('')
     try {
       const agora = horarioAtual()
       await iniciarDoca(doca.doca, valLocal.conferente, agora)
-      setValLocal({ conferente: valLocal.conferente })
+      setValLocal({ conferente: valLocal.conferente, cargaCertificada: false })
       setDocaAtiva(doca.doca)
       setTela('validar')
-    } catch (err) {
-      setErro(err.message)
-    }
+    } catch (err) { setErro(err.message) }
   }
 
-  // Continuar doca em andamento
   function handleContinuar(doca) {
     setDocaAtiva(doca.doca)
     setValLocal({
-      conferente: doca.conferente,
-      pendExp:    doca.pendExp    || '',
-      pendFrente: doca.pendFrente || '',
-      pendDentro: doca.pendDentro || '',
-      logExp:     doca.logExp     || '0',
-      logFrente:  doca.logFrente  || '0',
-      logDentro:  doca.logDentro  || '0',
-      hrLiberado: doca.hrLiberado || '',
-      observacao: doca.observacao || '',
+      conferente:       doca.conferente,
+      pendExp:          doca.pendExp    || '',
+      pendFrente:       doca.pendFrente || '',
+      pendDentro:       doca.pendDentro || '',
+      logExp:           doca.logExp     || '0',
+      logFrente:        doca.logFrente  || '0',
+      logDentro:        doca.logDentro  || '0',
+      hrLiberado:       doca.hrLiberado || '',
+      observacao:       doca.observacao || '',
+      // ── CARGA CERTIFICADA ──
+      cargaCertificada: doca.cargaCertificada || false,
     })
     setTela('validar')
   }
 
-  // Finaliza validação
   async function handleFinalizar() {
-    const docaObj = docas.find(d => d.doca === docaAtiva)
-    const agora   = horarioAtual()
-    const pExp    = Number(valLocal.pendExp    || 0)
-    const pFrente = Number(valLocal.pendFrente || 0)
-    const pDentro = Number(valLocal.pendDentro || 0)
+    const docaObj   = docas.find(d => d.doca === docaAtiva)
+    const agora     = horarioAtual()
+    const pExp      = Number(valLocal.pendExp    || 0)
+    const pFrente   = Number(valLocal.pendFrente || 0)
+    const pDentro   = Number(valLocal.pendDentro || 0)
     const resultado = pExp - pFrente - pDentro
-    const tempo = calcularTempo(docaObj?.hrInicio, agora)
+    const tempo     = calcularTempo(docaObj?.hrInicio, agora)
+
+    // ── Concatena CARGA CERTIFICADA na observação ──
+    const obsPartes = [
+      valLocal.cargaCertificada ? 'CARGA CERTIFICADA' : '',
+      valLocal.observacao || '',
+    ].filter(Boolean)
+    const observacaoFinal = obsPartes.join(' - ')
 
     let novoStatus = 'CONCLUIDO'
     let tsAlerta   = null
@@ -244,40 +242,35 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
 
     try {
       await finalizarDoca(docaAtiva, {
-        status:      novoStatus,
-        hrFim:       agora,
-        hrValidado:  agora,
-        valDoca:     tempo,
-        pendExp:     pExp,
-        pendFrente:  pFrente,
-        pendDentro:  pDentro,
-        logExp:      Number(valLocal.logExp    || 0),
-        logFrente:   Number(valLocal.logFrente || 0),
-        logDentro:   Number(valLocal.logDentro || 0),
-        hrLiberado:  valLocal.hrLiberado || '',
-        observacao:  valLocal.observacao || '',
+        status:           novoStatus,
+        hrFim:            agora,
+        hrValidado:       agora,
+        valDoca:          tempo,
+        pendExp:          pExp,
+        pendFrente:       pFrente,
+        pendDentro:       pDentro,
+        logExp:           Number(valLocal.logExp    || 0),
+        logFrente:        Number(valLocal.logFrente || 0),
+        logDentro:        Number(valLocal.logDentro || 0),
+        hrLiberado:       valLocal.hrLiberado || '',
+        observacao:       observacaoFinal,
+        cargaCertificada: valLocal.cargaCertificada || false,
         resultado,
         tsAlerta,
       })
       setDocaAtiva(null)
       setValLocal({})
       setTela('lista')
-    } catch (err) {
-      setErro('Erro ao finalizar: ' + err.message)
-    }
+    } catch (err) { setErro('Erro ao finalizar: ' + err.message) }
   }
 
-  // Solicitar aprovação
-  async function handleSolicitar() {
-    await handleFinalizar()
-  }
+  async function handleSolicitar() { await handleFinalizar() }
 
-  // Salvar tudo no Sheets
   async function salvarNoSheets() {
     setSalvando(true); setErro('')
     try {
-      const hoje     = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
-      const abaHoje  = hoje.split('/').reverse().join('-')
+      const hoje       = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+      const abaHoje    = hoje.split('/').reverse().join('-')
       const WEBAPP_URL = import.meta.env.VITE_APPS_SCRIPT_URL
 
       const docasSalvar = docas.filter(d => ['CONCLUIDO','AGUARD_COORD','ESCALADO','AGUARD_GERENTE'].includes(d.status))
@@ -305,9 +298,7 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
 
       setTela('sucesso')
       if (onDadosSalvos) onDadosSalvos()
-    } catch (e) {
-      setErro(`Erro ao salvar: ${e.message}`)
-    }
+    } catch (e) { setErro(`Erro ao salvar: ${e.message}`) }
     setSalvando(false)
   }
 
@@ -335,7 +326,7 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
     </div>
   )
 
-  // ─── SEM SESSÃO — tela de upload (só fiscal) ─────────────
+  // ─── SEM SESSÃO — upload ──────────────────────────────────
   if (!sessao) {
     if (!ehFiscal) return (
       <div style={{ textAlign: 'center', padding: 48, color: 'var(--text-muted)' }}>
@@ -378,7 +369,6 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
             </>
           )}
         </div>
-
         {erro && <div style={{ marginTop: 14, background: 'var(--red-dim)', border: '1px solid var(--red)', borderRadius: 10, padding: '12px 16px', color: 'var(--red)', fontSize: 13 }}>⚠️ {erro}</div>}
       </div>
     )
@@ -386,15 +376,15 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
 
   // ─── FORMULÁRIO DE VALIDAÇÃO ──────────────────────────────
   if (tela === 'validar' && docaAtiva) {
-    const docaObj = docas.find(d => d.doca === docaAtiva)
-    const pExp    = Number(valLocal.pendExp    || 0)
-    const pFrente = Number(valLocal.pendFrente || 0)
-    const pDentro = Number(valLocal.pendDentro || 0)
+    const docaObj     = docas.find(d => d.doca === docaAtiva)
+    const pExp        = Number(valLocal.pendExp    || 0)
+    const pFrente     = Number(valLocal.pendFrente || 0)
+    const pDentro     = Number(valLocal.pendDentro || 0)
     const resultado   = pExp - pFrente - pDentro
     const preenchido  = valLocal.conferente && valLocal.pendExp !== '' && valLocal.pendFrente !== '' && valLocal.pendDentro !== ''
     const podeLiberar   = preenchido && resultado < 3
     const podeSolicitar = preenchido && resultado >= 3
-    const corRes = resultado >= 5 ? 'var(--red)' : resultado >= 3 ? 'var(--yellow)' : 'var(--green)'
+    const corRes        = resultado >= 5 ? 'var(--red)' : resultado >= 3 ? 'var(--yellow)' : 'var(--green)'
 
     return (
       <div style={{ maxWidth: 680, margin: '0 auto', padding: '0 16px' }}>
@@ -506,15 +496,87 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
               <Campo label="Log Dentro"      valor={valLocal.logDentro} onChange={v => setValLocal(p => ({ ...p, logDentro: v }))} />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+            {/* Hr Liberado */}
+            <div style={{ marginBottom: 16 }}>
               <Campo label="Hr Liberado" valor={valLocal.hrLiberado} onChange={v => setValLocal(p => ({ ...p, hrLiberado: v }))} type="text" placeholder="Ex: 22:05" />
-              <Campo label="Observação"  valor={valLocal.observacao} onChange={v => setValLocal(p => ({ ...p, observacao: v }))} type="text" placeholder="Opcional..." />
+            </div>
+
+            {/* ── CARGA CERTIFICADA ── */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Tipo de carga
+              </label>
+              <button
+                type="button"
+                onClick={() => setValLocal(p => ({ ...p, cargaCertificada: !p.cargaCertificada }))}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 14,
+                  background: valLocal.cargaCertificada ? 'var(--green-dim)' : 'var(--bg-secondary)',
+                  border: `2px solid ${valLocal.cargaCertificada ? 'var(--green)' : 'var(--border)'}`,
+                  borderRadius: 12, padding: '14px 16px', cursor: 'pointer',
+                  transition: 'all 0.2s', textAlign: 'left',
+                }}
+              >
+                {/* Checkbox visual */}
+                <div style={{
+                  width: 24, height: 24, borderRadius: 6, flexShrink: 0,
+                  border: `2px solid ${valLocal.cargaCertificada ? 'var(--green)' : 'var(--border)'}`,
+                  background: valLocal.cargaCertificada ? 'var(--green)' : 'transparent',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'all 0.2s',
+                }}>
+                  {valLocal.cargaCertificada && (
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                      <path d="M2.5 6.5l3 3 5-5" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  )}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <ShieldCheck size={16} color={valLocal.cargaCertificada ? 'var(--green)' : 'var(--text-muted)'} />
+                    <span style={{ fontSize: 14, fontWeight: 700, color: valLocal.cargaCertificada ? 'var(--green)' : 'var(--text-primary)' }}>
+                      Carga Certificada
+                    </span>
+                    {valLocal.cargaCertificada && (
+                      <span style={{ fontSize: 11, background: 'var(--green)', color: '#fff', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>
+                        ATIVO
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
+                    {valLocal.cargaCertificada
+                      ? 'Será registrado "CARGA CERTIFICADA" na observação'
+                      : 'Marque se esta remessa possui certificação'}
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            {/* Observação */}
+            <div style={{ marginBottom: 16 }}>
+              <Campo
+                label="Observação"
+                valor={valLocal.observacao}
+                onChange={v => setValLocal(p => ({ ...p, observacao: v }))}
+                type="text"
+                placeholder={valLocal.cargaCertificada ? 'Ex: volume extra, divergência...' : 'Opcional...'}
+              />
+              {valLocal.cargaCertificada && valLocal.observacao && (
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                  Será salvo como: <strong style={{ color: 'var(--green)' }}>CARGA CERTIFICADA - {valLocal.observacao}</strong>
+                </div>
+              )}
+              {valLocal.cargaCertificada && !valLocal.observacao && (
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                  Será salvo como: <strong style={{ color: 'var(--green)' }}>CARGA CERTIFICADA</strong>
+                </div>
+              )}
             </div>
 
             {erro && <div style={{ background: 'var(--red-dim)', border: '1px solid var(--red)', borderRadius: 8, padding: '10px 14px', marginBottom: 14, color: 'var(--red)', fontSize: 13 }}>⚠️ {erro}</div>}
 
             {/* Botões */}
-            <div style={{ display: 'grid', gridTemplateColumns: podeSolicitar && podeLiberar ? '1fr' : podeSolicitar ? '1fr' : '1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
               {podeLiberar && (
                 <button onClick={handleFinalizar} style={{ padding: '14px', borderRadius: 10, border: 'none', background: 'var(--green)', color: '#fff', fontWeight: 800, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                   <CheckCircle size={18} /> Liberar doca
@@ -537,27 +599,21 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
     )
   }
 
-  // ─── LISTA DE DOCAS (tela principal) ─────────────────────
+  // ─── LISTA DE DOCAS ───────────────────────────────────────
   const counts = {
-    pendente:     docas.filter(d => d.status === 'PENDENTE').length,
-    emAndamento:  docas.filter(d => d.status === 'EM_ANDAMENTO').length,
-    aguardando:   docas.filter(d => ['AGUARD_COORD','ESCALADO','AGUARD_GERENTE'].includes(d.status)).length,
-    concluido:    docas.filter(d => d.status === 'CONCLUIDO').length,
+    pendente:    docas.filter(d => d.status === 'PENDENTE').length,
+    emAndamento: docas.filter(d => d.status === 'EM_ANDAMENTO').length,
+    aguardando:  docas.filter(d => ['AGUARD_COORD','ESCALADO','AGUARD_GERENTE'].includes(d.status)).length,
+    concluido:   docas.filter(d => d.status === 'CONCLUIDO').length,
   }
   const prontas = docas.filter(d => ['CONCLUIDO','AGUARD_COORD','ESCALADO','AGUARD_GERENTE'].includes(d.status))
 
   return (
     <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 0 80px' }}>
-
-      {/* Header da sessão */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
         <div>
-          <h2 style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>
-            Validação — {sessao?.data}
-          </h2>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            Upload por: {sessao?.criadoPor?.split('@')[0]} · {docas.length} docas
-          </p>
+          <h2 style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>Validação — {sessao?.data}</h2>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Upload por: {sessao?.criadoPor?.split('@')[0]} · {docas.length} docas</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {ehFiscal && (
@@ -589,7 +645,7 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
         ))}
       </div>
 
-      {/* Seleção de conferente antes de iniciar */}
+      {/* Seleção de conferente */}
       {!docaAtiva && (
         <div style={{ background: 'var(--bg-card)', borderRadius: 12, padding: '14px 16px', border: '1px solid var(--border)', marginBottom: 14 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
@@ -616,26 +672,31 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
       {/* Lista de docas */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {docas.map(d => {
-          const inf = INFO_ST[d.status] || INFO_ST.PENDENTE
-          const minha = d.conferente === valLocal.conferente
+          const inf      = INFO_ST[d.status] || INFO_ST.PENDENTE
+          const minha    = d.conferente === valLocal.conferente
           const borderCor = d.status === 'AGUARD_GERENTE' || d.status === 'ESCALADO' ? 'var(--red)'
-            : d.status === 'AGUARD_COORD' ? 'var(--orange)'
-            : d.status === 'EM_ANDAMENTO' ? 'var(--yellow)'
+            : d.status === 'AGUARD_COORD'  ? 'var(--orange)'
+            : d.status === 'EM_ANDAMENTO'  ? 'var(--yellow)'
             : 'var(--border)'
 
           return (
             <div key={d.doca} style={{ background: 'var(--bg-card)', borderRadius: 12, border: `1px solid ${borderCor}` }}>
               <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-
-                {/* Doca */}
                 <div style={{ background: 'var(--yellow-dim)', borderRadius: 8, padding: '6px 12px', minWidth: 56, textAlign: 'center', flexShrink: 0 }}>
                   <div style={{ fontSize: 9, color: 'var(--yellow)', fontWeight: 700 }}>DOCA</div>
                   <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--yellow)', lineHeight: 1 }}>{d.doca}</div>
                 </div>
 
-                {/* Infos */}
                 <div style={{ flex: 1, minWidth: 150 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 3 }}>{d.nomeFilial || d.remessa}</div>
+                  <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {d.nomeFilial || d.remessa}
+                    {/* Badge carga certificada na lista */}
+                    {d.cargaCertificada && (
+                      <span style={{ fontSize: 10, background: 'var(--green-dim)', color: 'var(--green)', padding: '1px 6px', borderRadius: 20, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <ShieldCheck size={10} /> Certificada
+                      </span>
+                    )}
+                  </div>
                   <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={10} />{d.horario}</span>
                     <span style={{ fontSize: 11, color: d.supervisor === 'Virginia' ? 'var(--blue)' : 'var(--orange)', fontWeight: 600 }}>{d.supervisor}</span>
@@ -648,17 +709,14 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
                   </div>
                 </div>
 
-                {/* Timer escalada */}
                 {d.status === 'AGUARD_COORD' && d.tsAlerta && (
                   <Countdown tsAlerta={d.tsAlerta} onExpirar={() => atualizarDoca(d.doca, { status: 'ESCALADO', tsEscalada: new Date() })} />
                 )}
 
-                {/* Badge status */}
                 <span style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: inf.bg, color: inf.color, flexShrink: 0, whiteSpace: 'nowrap' }}>
                   {inf.label}
                 </span>
 
-                {/* Botões */}
                 {d.status === 'PENDENTE' && valLocal.conferente && (
                   <button onClick={() => handleIniciar(d)} style={{ background: 'var(--yellow)', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', color: '#1a1a1a', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>
                     <Play size={12} style={{ display: 'inline', marginRight: 4 }} />Iniciar
@@ -680,7 +738,7 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
         })}
       </div>
 
-      {/* Tela de confirmação */}
+      {/* Modal confirmação */}
       {tela === 'confirmacao' && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div style={{ background: 'var(--bg-card)', borderRadius: 16, padding: 24, maxWidth: 500, width: '100%', maxHeight: '80vh', overflowY: 'auto' }}>
@@ -688,9 +746,14 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
             <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>{prontas.length} doca(s) serão salvas no Google Sheets.</p>
 
             {prontas.map((d, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 13, gap: 8 }}>
                 <span style={{ fontWeight: 700, color: 'var(--yellow)' }}>Doca {d.doca}</span>
-                <span style={{ color: 'var(--text-muted)' }}>{d.conferente}</span>
+                <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{d.conferente}</span>
+                {d.cargaCertificada && (
+                  <span style={{ fontSize: 10, background: 'var(--green-dim)', color: 'var(--green)', padding: '1px 6px', borderRadius: 20, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <ShieldCheck size={9} /> Cert.
+                  </span>
+                )}
                 <span style={{ fontWeight: 700, color: (d.resultado || 0) >= 5 ? 'var(--red)' : (d.resultado || 0) >= 3 ? 'var(--yellow)' : 'var(--green)' }}>
                   {d.resultado ?? 0} pend.
                 </span>
