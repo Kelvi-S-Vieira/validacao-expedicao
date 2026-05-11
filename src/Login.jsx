@@ -4,7 +4,7 @@ import { auth } from './firebase'
 import { Eye, EyeOff, LogIn, Truck } from 'lucide-react'
 
 const PERFIS = [
-  { perfil: 'OPERADOR',    email: 'operador@gpp.com',    cor: '#3b82f6', bg: '#3b82f620' },
+  { perfil: 'FISCAL',    email: 'operador@gpp.com',    cor: '#3b82f6', bg: '#3b82f620' },
   { perfil: 'COORDENADOR', email: 'coordenador@gpp.com', cor: '#f97316', bg: '#f9731620' },
   { perfil: 'GERENTE',     email: 'gerente@gpp.com',     cor: '#ef4444', bg: '#ef444420' },
   { perfil: 'ANALISTA',    email: 'analista@gpp.com',    cor: '#22c55e', bg: '#22c55e20' },
