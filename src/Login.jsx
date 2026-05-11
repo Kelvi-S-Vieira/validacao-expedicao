@@ -33,7 +33,7 @@ export default function Login({ onLogin }) {
     if (email.includes('gerente'))     return 'GERENTE'
     if (email.includes('coordenador')) return 'COORDENADOR'
     if (email.includes('analista'))    return 'ANALISTA'
-    return 'OPERADOR'
+    return 'FISCAL'
   }
 
   async function handleLogin(e) {
