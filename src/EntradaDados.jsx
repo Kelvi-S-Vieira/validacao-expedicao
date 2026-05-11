@@ -440,7 +440,7 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
             {/* Fiscal de Prevenção */}
             <div style={{ marginBottom: 18 }}>
               <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                Conferente <span style={{ color: 'var(--yellow)' }}>*</span>
+                Fiscal de Prevenção <span style={{ color: 'var(--yellow)' }}>*</span>
               </label>
               {confsAtivos.length === 0 ? (
                 <p style={{ fontSize: 13, color: 'var(--red)' }}>⚠️ Nenhum fiscal de prevenção cadastrado.</p>
