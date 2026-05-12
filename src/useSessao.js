@@ -1,49 +1,41 @@
 import { useState, useEffect } from 'react'
 import {
   doc, collection, setDoc, getDoc, onSnapshot,
-  updateDoc, deleteDoc, serverTimestamp, getDocs, query, orderBy, limit
+  updateDoc, deleteDoc, serverTimestamp, getDocs
 } from 'firebase/firestore'
 import { db } from './firebase'
 
 const COL_SESSOES = 'sessoes'
 const COL_DOCAS   = 'docas'
+const COL_LOCKS   = 'upload_locks'
 const MAX_SESSOES = 5
+const LOCK_TTL_MS = 30_000 // 30 segundos
 
 export function useSessao(usuario) {
-  const [sessoes, setSessoes]       = useState([])   // lista de sessões disponíveis
-  const [sessaoId, setSessaoId]     = useState(null) // ID da sessão ativa
+  const [sessoes, setSessoes]       = useState([])
+  const [sessaoId, setSessaoId]     = useState(null)
   const [sessao, setSessao]         = useState(null)
   const [docas, setDocas]           = useState([])
   const [carregando, setCarregando] = useState(true)
 
-  // Escuta todas as sessões disponíveis (últimas 5)
+  // Escuta sessões disponíveis (últimas 5)
   useEffect(() => {
     if (!usuario) return
     const ref = collection(db, COL_SESSOES)
     const unsub = onSnapshot(ref, snap => {
       const lista = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => {
-          // Ordena por data decrescente
-          const da = a.criadoEm?.toMillis?.() || 0
-          const db_ = b.criadoEm?.toMillis?.() || 0
-          return db_ - da
-        })
+        .sort((a, b) => (b.criadoEm?.toMillis?.() || 0) - (a.criadoEm?.toMillis?.() || 0))
         .slice(0, MAX_SESSOES)
       setSessoes(lista)
-
-      // Se não há sessão selecionada, seleciona a mais recente
-      if (lista.length > 0) {
-        setSessaoId(prev => prev || lista[0].id)
-      } else {
-        setSessaoId(null)
-      }
+      if (lista.length > 0) setSessaoId(prev => prev || lista[0].id)
+      else setSessaoId(null)
       setCarregando(false)
     })
     return () => unsub()
   }, [usuario])
 
-  // Escuta a sessão ativa
+  // Escuta sessão ativa
   useEffect(() => {
     if (!sessaoId) { setSessao(null); return }
     const ref = doc(db, COL_SESSOES, sessaoId)
@@ -61,10 +53,7 @@ export function useSessao(usuario) {
       const lista = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .filter(d => {
-          // Docas do novo sistema: tem sessaoId igual ao atual
           if (d.sessaoId === sessaoId) return true
-          // Docas do sistema legado: não tem sessaoId e o ID começa com 'doca_'
-          // só aparece quando a sessão ativa é a mais recente (sessao_atual ou primeira da lista)
           if (!d.sessaoId && d.id.startsWith('doca_')) return true
           return false
         })
@@ -74,93 +63,95 @@ export function useSessao(usuario) {
     return () => unsub()
   }, [sessaoId])
 
-  // Cria nova sessão com ID único baseado na data + timestamp
-  async function criarSessao(docasBase) {
-    const hoje  = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
-    const ts    = Date.now()
-    const novoId = `sessao_${hoje.replace(/\//g, '-')}_${ts}`
+  // ── PROTEÇÃO 2: Lock de upload simultâneo ─────────────────
+  async function adquirirLock() {
+    const lockRef = doc(db, COL_LOCKS, 'upload')
+    const snap    = await getDoc(lockRef)
 
-    // Remove sessões antigas se já tem MAX_SESSOES
-    if (sessoes.length >= MAX_SESSOES) {
-      const maisAntiga = sessoes[sessoes.length - 1]
-      // Remove docas da sessão antiga
-      const snaps = await getDocs(collection(db, COL_DOCAS))
-      const docasAntigas = snaps.docs.filter(d => d.data().sessaoId === maisAntiga.id)
-      await Promise.all(docasAntigas.map(d => deleteDoc(d.ref)))
-      await deleteDoc(doc(db, COL_SESSOES, maisAntiga.id))
+    if (snap.exists()) {
+      const { lockedBy, lockedAt } = snap.data()
+      const ts = lockedAt?.toMillis?.() || 0
+      const idade = Date.now() - ts
+
+      // Lock ainda válido e não é do mesmo usuário
+      if (idade < LOCK_TTL_MS && lockedBy !== usuario.email) {
+        throw new Error(`Upload em andamento por ${lockedBy.split('@')[0]}. Aguarde ${Math.ceil((LOCK_TTL_MS - idade) / 1000)}s.`)
+      }
     }
 
-    // Cria nova sessão
-    // Pega a data do arquivo (primeiro doca com data válida)
-    const dataArquivo = docasBase.find(d => d.data)?.data || hoje
-
-    await setDoc(doc(db, COL_SESSOES, novoId), {
-      data:       dataArquivo,
-      criadoPor:  usuario.email,
-      criadoEm:   serverTimestamp(),
-      totalDocas: docasBase.length,
+    // Adquire o lock
+    await setDoc(lockRef, {
+      lockedBy:  usuario.email,
+      lockedAt:  serverTimestamp(),
     })
+  }
 
-    // Cria docas com referência à sessão
-    const promises = docasBase.map(d =>
-      setDoc(doc(db, COL_DOCAS, `${novoId}_doca_${d.doca}`), {
-        ...d,
-        sessaoId,
-        status: 'PENDENTE',
-        conferente: null, hrInicio: null, hrFim: null,
-        hrValidado: null, hrLiberado: null, valDoca: null,
-        pendExp: null, pendFrente: null, pendDentro: null,
-        resultado: null, logExp: null, logFrente: null,
-        logDentro: null, observacao: null, tsAlerta: null,
-        aprovadoPor: null, hrAprovacao: null,
-        rejeitadoPor: null, hrRejeicao: null, motivoRejeicao: null,
-        atualizadoEm: serverTimestamp(),
+  async function liberarLock() {
+    try {
+      await deleteDoc(doc(db, COL_LOCKS, 'upload'))
+    } catch {}
+  }
+
+  // ── Cria nova sessão ──────────────────────────────────────
+  async function criarSessao(docasBase) {
+    // Proteção 2: bloqueia upload simultâneo
+    await adquirirLock()
+
+    try {
+      const hoje    = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+      const ts      = Date.now()
+      const novoId  = `sessao_${hoje.replace(/\//g, '-')}_${ts}`
+      const dataArquivo = docasBase.find(d => d.data)?.data || hoje
+
+      // Remove sessão mais antiga se já tem MAX_SESSOES
+      if (sessoes.length >= MAX_SESSOES) {
+        const maisAntiga = sessoes[sessoes.length - 1]
+        const snaps = await getDocs(collection(db, COL_DOCAS))
+        const docasAntigas = snaps.docs.filter(d => d.data().sessaoId === maisAntiga.id)
+        await Promise.all(docasAntigas.map(d => deleteDoc(d.ref)))
+        await deleteDoc(doc(db, COL_SESSOES, maisAntiga.id))
+      }
+
+      // Cria a sessão
+      await setDoc(doc(db, COL_SESSOES, novoId), {
+        data:       dataArquivo,
+        criadoPor:  usuario.email,
+        criadoEm:   serverTimestamp(),
+        totalDocas: docasBase.length,
       })
-    )
 
-    // Corrige o sessaoId nas docas
-    const promises2 = docasBase.map(d =>
-      setDoc(doc(db, COL_DOCAS, `${novoId}_doca_${d.doca}`), {
-        ...d,
-        sessaoId: novoId,
-        status: 'PENDENTE',
-        conferente: null, hrInicio: null, hrFim: null,
-        hrValidado: null, hrLiberado: null, valDoca: null,
-        pendExp: null, pendFrente: null, pendDentro: null,
-        resultado: null, logExp: null, logFrente: null,
-        logDentro: null, observacao: null, tsAlerta: null,
-        aprovadoPor: null, hrAprovacao: null,
-        rejeitadoPor: null, hrRejeicao: null, motivoRejeicao: null,
-        atualizadoEm: serverTimestamp(),
-      })
-    )
-    await Promise.all(promises2)
+      // Cria docas com sessaoId correto
+      await Promise.all(docasBase.map(d =>
+        setDoc(doc(db, COL_DOCAS, `${novoId}_doca_${d.doca}`), {
+          ...d,
+          sessaoId: novoId,
+          status: 'PENDENTE',
+          conferente: null, hrInicio: null, hrFim: null,
+          hrValidado: null, hrLiberado: null, valDoca: null,
+          pendExp: null, pendFrente: null, pendDentro: null,
+          resultado: null, logExp: null, logFrente: null,
+          logDentro: null, observacao: null, tsAlerta: null,
+          aprovadoPor: null, hrAprovacao: null,
+          rejeitadoPor: null, hrRejeicao: null, motivoRejeicao: null,
+          atualizadoEm: serverTimestamp(),
+        })
+      ))
 
-    setSessaoId(novoId)
+      setSessaoId(novoId)
+    } finally {
+      // Sempre libera o lock
+      await liberarLock()
+    }
   }
 
-  // Alterna para outra sessão
-  function selecionarSessao(id) {
-    setSessaoId(id)
-  }
+  function selecionarSessao(id) { setSessaoId(id) }
 
-  // Resolve o ID correto da doca (novo sistema vs legado)
-  function resolverDocId(doca) {
-    // Tenta primeiro o novo formato
-    const novoId = `${sessaoId}_doca_${doca}`
-    // Legado
-    const legadoId = `doca_${doca}`
-    return { novoId, legadoId }
-  }
-
+  // ── Resolve ID da doca (novo sistema vs legado) ───────────
   async function getDocRef(doca) {
-    const { novoId, legadoId } = resolverDocId(doca)
-    // Tenta o novo ID primeiro
-    const refNovo = doc(db, COL_DOCAS, novoId)
-    const snapNovo = await getDoc(refNovo)
+    const refNovo   = doc(db, COL_DOCAS, `${sessaoId}_doca_${doca}`)
+    const snapNovo  = await getDoc(refNovo)
     if (snapNovo.exists()) return refNovo
-    // Fallback para legado
-    return doc(db, COL_DOCAS, legadoId)
+    return doc(db, COL_DOCAS, `doca_${doca}`)
   }
 
   async function iniciarDoca(doca, conferente, hrInicio) {
@@ -168,10 +159,7 @@ export function useSessao(usuario) {
     const snap = await getDoc(ref)
     if (!snap.exists()) throw new Error('Doca não encontrada')
     if (snap.data().status !== 'PENDENTE') throw new Error('Doca já está sendo validada')
-    await updateDoc(ref, {
-      status: 'EM_ANDAMENTO', conferente, hrInicio,
-      atualizadoEm: serverTimestamp(),
-    })
+    await updateDoc(ref, { status: 'EM_ANDAMENTO', conferente, hrInicio, atualizadoEm: serverTimestamp() })
   }
 
   async function atualizarDoca(doca, campos) {
@@ -186,12 +174,10 @@ export function useSessao(usuario) {
 
   async function aprovarDoca(doca, comentario) {
     const agora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-    const ref = await getDocRef(doca)
+    const ref   = await getDocRef(doca)
     await updateDoc(ref, {
-      status:      'CONCLUIDO',
-      aprovadoPor: usuario.email,
-      hrAprovacao: agora,
-      comentarioAprovacao: comentario || '',
+      status: 'CONCLUIDO', aprovadoPor: usuario.email,
+      hrAprovacao: agora, comentarioAprovacao: comentario || '',
       atualizadoEm: serverTimestamp(),
     })
   }
@@ -200,11 +186,9 @@ export function useSessao(usuario) {
     const agora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     const ref   = await getDocRef(doca)
     await updateDoc(ref, {
-      status:         'REJEITADO',
-      rejeitadoPor:   usuario.email,
-      hrRejeicao:     agora,
-      motivoRejeicao: motivo || '',
-      atualizadoEm:   serverTimestamp(),
+      status: 'REJEITADO', rejeitadoPor: usuario.email,
+      hrRejeicao: agora, motivoRejeicao: motivo || '',
+      atualizadoEm: serverTimestamp(),
     })
   }
 
@@ -217,10 +201,17 @@ export function useSessao(usuario) {
     setSessaoId(null)
   }
 
+  // ── PROTEÇÃO 1: Verifica sessões do dia anterior ──────────
+  function sessoesDiaAnterior() {
+    const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+    return sessoes.filter(s => s.data !== hoje && s.data)
+  }
+
   return {
     sessoes, sessao, sessaoId, docas, carregando,
     criarSessao, selecionarSessao,
     iniciarDoca, atualizarDoca, finalizarDoca,
     aprovarDoca, rejeitarDoca, encerrarSessao,
+    sessoesDiaAnterior,
   }
 }

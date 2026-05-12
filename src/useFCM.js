@@ -1,24 +1,47 @@
 import { useEffect, useState } from 'react'
 import { getMessaging, getToken, onMessage } from 'firebase/messaging'
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore'
 import { db, app } from './firebase'
 
-const VAPID_KEY = import.meta.env.VITE_FIREBASE_VAPID_KEY
+const VAPID_KEY      = import.meta.env.VITE_FIREBASE_VAPID_KEY
+const TOKEN_MAX_AGE  = 30 * 24 * 60 * 60 * 1000 // 30 dias → renova token
 
 export function useFCM(usuario) {
   const [fcmToken, setFcmToken]         = useState(null)
   const [permissao, setPermissao]       = useState('default')
   const [notificacoes, setNotificacoes] = useState([])
+  const [tokenExpirado, setTokenExpirado] = useState(false)
 
   useEffect(() => {
     if (!usuario) return
     if (!['COORDENADOR', 'GERENTE'].includes(usuario.perfil)) return
+
     if (Notification.permission === 'granted') {
-      solicitarPermissao()
+      verificarEInicializar()
     } else {
       setPermissao(Notification.permission)
     }
   }, [usuario])
+
+  // ── PROTEÇÃO 4: Verifica se token está expirado ───────────
+  async function verificarEInicializar() {
+    try {
+      // Verifica idade do token salvo no Firestore
+      const tokenDoc = await getDoc(doc(db, 'fcm_tokens', usuario.uid))
+      if (tokenDoc.exists()) {
+        const { updatedAt } = tokenDoc.data()
+        const idade = Date.now() - (updatedAt?.toMillis?.() || 0)
+        if (idade > TOKEN_MAX_AGE) {
+          console.log('Token FCM expirado — renovando...')
+          setTokenExpirado(true)
+        }
+      }
+      await solicitarPermissao()
+    } catch (err) {
+      console.error('Erro ao verificar token FCM:', err)
+      await solicitarPermissao()
+    }
+  }
 
   async function solicitarPermissao() {
     try {
@@ -30,6 +53,7 @@ export function useFCM(usuario) {
       const sw = await navigator.serviceWorker.register('/firebase-messaging-sw.js')
       await navigator.serviceWorker.ready
 
+      // Força renovação do token FCM
       const token = await getToken(messaging, {
         vapidKey: VAPID_KEY,
         serviceWorkerRegistration: sw,
@@ -37,8 +61,9 @@ export function useFCM(usuario) {
 
       if (token) {
         setFcmToken(token)
-        console.log('FCM Token gerado:', token.substring(0, 30) + '...')
+        setTokenExpirado(false)
         await salvarTokenFirestore(token, usuario)
+        console.log('Token FCM renovado e salvo com sucesso')
       }
 
       onMessage(messaging, payload => {
@@ -58,6 +83,12 @@ export function useFCM(usuario) {
       })
     } catch (err) {
       console.error('Erro FCM:', err)
+      // Se for erro de token inválido, marca como expirado
+      if (err.code === 'messaging/token-unsubscribe-failed' ||
+          err.message?.includes('404') ||
+          err.message?.includes('410')) {
+        setTokenExpirado(true)
+      }
     }
   }
 
@@ -65,25 +96,24 @@ export function useFCM(usuario) {
     setNotificacoes(prev => prev.map(n => n.id === id ? { ...n, lida: true } : n))
   }
 
-  function limparNotificacoes() {
-    setNotificacoes([])
-  }
+  function limparNotificacoes() { setNotificacoes([]) }
 
-  return { fcmToken, permissao, notificacoes, marcarLida, limparNotificacoes, solicitarPermissao }
+  return {
+    fcmToken, permissao, notificacoes, tokenExpirado,
+    marcarLida, limparNotificacoes, solicitarPermissao,
+  }
 }
 
 async function salvarTokenFirestore(token, usuario) {
   try {
-    console.log('Salvando token no Firestore para:', usuario.email)
     await setDoc(doc(db, 'fcm_tokens', usuario.uid), {
       token,
       email:     usuario.email,
       perfil:    usuario.perfil,
       updatedAt: serverTimestamp(),
     })
-    console.log('Token FCM salvo com sucesso no Firestore!')
   } catch (err) {
-    console.error('Erro ao salvar token FCM no Firestore:', err)
+    console.error('Erro ao salvar token FCM:', err)
   }
 }
 
