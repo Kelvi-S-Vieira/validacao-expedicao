@@ -141,7 +141,11 @@ function SeletorSessoes({ sessoes, sessaoId, onSelecionar, onNovaUpload }) {
           color: 'var(--text-primary)', fontSize: 13, fontWeight: 600,
         }}>
           <Clock size={14} color="var(--yellow)" />
-          {sessaoAtual ? `${sessaoAtual.data} · ${sessaoAtual.totalDocas} docas` : 'Selecionar sessão'}
+          {sessaoAtual ? (() => {
+            const ts = sessaoAtual.criadoEm?.toMillis?.()
+            const hr = ts ? new Date(ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : null
+            return `${sessaoAtual.data}${hr ? ` · upload ${hr}` : ''} · ${sessaoAtual.totalDocas} docas`
+          })() : 'Selecionar sessão'}
           <ChevronDown size={14} color="var(--text-muted)" />
         </button>
         <button onClick={onNovaUpload} style={{
@@ -164,8 +168,12 @@ function SeletorSessoes({ sessoes, sessaoId, onSelecionar, onNovaUpload }) {
             Sessões disponíveis (últimas 5)
           </div>
           {sessoes.map(s => {
-            const ativa    = s.id === sessaoId
-            const concluidas = 0 // simplificado
+            const ativa = s.id === sessaoId
+            // Extrai horário do upload a partir do ID (sessao_DD-MM-YYYY_timestamp)
+            const tsUpload = s.criadoEm?.toMillis?.()
+            const hrUpload = tsUpload
+              ? new Date(tsUpload).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+              : null
             return (
               <div key={s.id} onClick={() => { onSelecionar(s.id); setAberto(false) }}
                 style={{
@@ -178,8 +186,13 @@ function SeletorSessoes({ sessoes, sessaoId, onSelecionar, onNovaUpload }) {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: 13, color: ativa ? 'var(--yellow)' : 'var(--text-primary)' }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: ativa ? 'var(--yellow)' : 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
                       📅 {s.data}
+                      {hrUpload && (
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>
+                          upload {hrUpload}
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
                       {s.totalDocas} docas · por {s.criadoPor?.split('@')[0]}
