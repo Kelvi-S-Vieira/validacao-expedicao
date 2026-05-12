@@ -60,7 +60,14 @@ export function useSessao(usuario) {
     const unsub = onSnapshot(ref, snap => {
       const lista = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .filter(d => d.sessaoId === sessaoId)
+        .filter(d => {
+          // Docas do novo sistema: tem sessaoId igual ao atual
+          if (d.sessaoId === sessaoId) return true
+          // Docas do sistema legado: não tem sessaoId e o ID começa com 'doca_'
+          // só aparece quando a sessão ativa é a mais recente (sessao_atual ou primeira da lista)
+          if (!d.sessaoId && d.id.startsWith('doca_')) return true
+          return false
+        })
         .sort((a, b) => (a.doca || '').localeCompare(b.doca || ''))
       setDocas(lista)
     })
@@ -84,8 +91,11 @@ export function useSessao(usuario) {
     }
 
     // Cria nova sessão
+    // Pega a data do arquivo (primeiro doca com data válida)
+    const dataArquivo = docasBase.find(d => d.data)?.data || hoje
+
     await setDoc(doc(db, COL_SESSOES, novoId), {
-      data:       hoje,
+      data:       dataArquivo,
       criadoPor:  usuario.email,
       criadoEm:   serverTimestamp(),
       totalDocas: docasBase.length,
@@ -134,10 +144,28 @@ export function useSessao(usuario) {
     setSessaoId(id)
   }
 
+  // Resolve o ID correto da doca (novo sistema vs legado)
+  function resolverDocId(doca) {
+    // Tenta primeiro o novo formato
+    const novoId = `${sessaoId}_doca_${doca}`
+    // Legado
+    const legadoId = `doca_${doca}`
+    return { novoId, legadoId }
+  }
+
+  async function getDocRef(doca) {
+    const { novoId, legadoId } = resolverDocId(doca)
+    // Tenta o novo ID primeiro
+    const refNovo = doc(db, COL_DOCAS, novoId)
+    const snapNovo = await getDoc(refNovo)
+    if (snapNovo.exists()) return refNovo
+    // Fallback para legado
+    return doc(db, COL_DOCAS, legadoId)
+  }
+
   async function iniciarDoca(doca, conferente, hrInicio) {
-    const docId = `${sessaoId}_doca_${doca}`
-    const ref   = doc(db, COL_DOCAS, docId)
-    const snap  = await getDoc(ref)
+    const ref  = await getDocRef(doca)
+    const snap = await getDoc(ref)
     if (!snap.exists()) throw new Error('Doca não encontrada')
     if (snap.data().status !== 'PENDENTE') throw new Error('Doca já está sendo validada')
     await updateDoc(ref, {
@@ -147,21 +175,18 @@ export function useSessao(usuario) {
   }
 
   async function atualizarDoca(doca, campos) {
-    const docId = `${sessaoId}_doca_${doca}`
-    const ref   = doc(db, COL_DOCAS, docId)
+    const ref = await getDocRef(doca)
     await updateDoc(ref, { ...campos, atualizadoEm: serverTimestamp() })
   }
 
   async function finalizarDoca(doca, dados) {
-    const docId = `${sessaoId}_doca_${doca}`
-    const ref   = doc(db, COL_DOCAS, docId)
+    const ref = await getDocRef(doca)
     await updateDoc(ref, { ...dados, atualizadoEm: serverTimestamp() })
   }
 
   async function aprovarDoca(doca, comentario) {
     const agora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-    const docId = `${sessaoId}_doca_${doca}`
-    const ref   = doc(db, COL_DOCAS, docId)
+    const ref = await getDocRef(doca)
     await updateDoc(ref, {
       status:      'CONCLUIDO',
       aprovadoPor: usuario.email,
@@ -173,8 +198,7 @@ export function useSessao(usuario) {
 
   async function rejeitarDoca(doca, motivo) {
     const agora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-    const docId = `${sessaoId}_doca_${doca}`
-    const ref   = doc(db, COL_DOCAS, docId)
+    const ref   = await getDocRef(doca)
     await updateDoc(ref, {
       status:         'REJEITADO',
       rejeitadoPor:   usuario.email,
