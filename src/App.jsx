@@ -167,7 +167,7 @@ export default function App() {
   const [mostrarNotif, setMostrarNotif]               = useState(false)
   const [menuAberto, setMenuAberto]                   = useState(false)
 
-  const { permissao, notificacoes, marcarLida, limparNotificacoes, solicitarPermissao } = useFCM(usuario)
+  const { permissao, notificacoes, marcarLida, limparNotificacoes, solicitarPermissao, tokenExpirado } = useFCM(usuario)
   const notifNaoLidas = notificacoes.filter(n => !n.lida).length
 
   useEffect(() => {
@@ -425,7 +425,7 @@ export default function App() {
         )}
 
         <div className="fade-in">
-          {abaSelecionada === 'entrada' && <EntradaDados usuario={usuario} conferentes={conferentes} onDadosSalvos={carregarDados} />}
+          {abaSelecionada === 'entrada' && <EntradaDados usuario={usuario} conferentes={conferentes} onDadosSalvos={carregarDados} tokenFCMExpirado={tokenExpirado} onRenovarToken={solicitarPermissao} />}
           {abaSelecionada === 'conferentes' && <Conferentes />}
           {abaSelecionada === 'historico'   && <DashboardHistorico dadosRecentes={dados} />}
 

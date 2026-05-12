@@ -167,8 +167,12 @@ function SeletorSessoes({ sessoes, sessaoId, onSelecionar, onNovaUpload, onRemov
             const ativa    = s.id === sessaoId
             const ts       = s.criadoEm?.toMillis?.()
             const hrUpload = ts ? new Date(ts).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }) : null
-            const hoje     = new Date().toLocaleDateString('pt-BR', { timeZone:'America/Sao_Paulo' })
-            const antiga   = s.data && s.data !== hoje
+            // Compara data da sessão com hoje (formato dd/mm/yyyy)
+            const agora    = new Date().toLocaleString('pt-BR', { timeZone:'America/Sao_Paulo' })
+            const hoje     = agora.split(',')[0].trim() // pega só dd/mm/yyyy
+            // Normaliza ambas para dd/mm/yyyy com zero à esquerda
+            const normalizar = d => d ? d.split('/').map((p,i) => i<2 ? p.padStart(2,'0') : p).join('/') : ''
+            const antiga   = s.data && normalizar(s.data) !== normalizar(hoje)
             return (
               <div key={s.id} onClick={() => { onSelecionar(s.id); setAberto(false) }}
                 style={{ padding:'12px 14px', cursor:'pointer', borderBottom:'1px solid var(--border)', background: ativa ? 'var(--yellow-dim)' : 'transparent', transition:'background 0.15s' }}
