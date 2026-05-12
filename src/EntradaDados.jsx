@@ -40,20 +40,26 @@ function formatarHorario(val) {
 
 function formatarData(val) {
   if (!val) return ''
-  if (val instanceof Date) {
+  // Objeto Date — sempre confiável
+  if (val instanceof Date && !isNaN(val)) {
     const d = String(val.getDate()).padStart(2, '0')
     const m = String(val.getMonth() + 1).padStart(2, '0')
     const y = val.getFullYear()
     return `${d}/${m}/${y}`
   }
-  // Se já é string no formato d/m/yy ou d/m/yyyy, normaliza
   const str = String(val).trim()
   const partes = str.split('/')
   if (partes.length === 3) {
-    const d = partes[0].padStart(2, '0')
-    const m = partes[1].padStart(2, '0')
-    const y = partes[2].length === 2 ? `20${partes[2]}` : partes[2]
-    return `${d}/${m}/${y}`
+    let p0 = partes[0], p1 = partes[1], p2 = partes[2]
+    const n0 = Number(p0), n1 = Number(p1)
+    let d, m, y
+    // XLSX com dateNF 'dd/mm/yyyy' retorna string no formato dd/mm/yyyy
+    // Mas às vezes retorna MM/DD/YYYY (americano) — detecta pelo contexto:
+    // Se p1 > 12 → definitivamente dia no p1 → formato MM/DD/YYYY → inverte
+    if (n1 > 12) { d = p1; m = p0 }
+    else { d = p0; m = p1 } // assume dd/mm (padrão pt-BR)
+    y = p2.length === 2 ? `20${p2}` : p2
+    return `${d.padStart(2,'0')}/${m.padStart(2,'0')}/${y}`
   }
   return str
 }
