@@ -281,7 +281,7 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
         const nome = wb.SheetNames.find(n => n.trim() === '121')
         if (!nome) { setErro('Aba "121" não encontrada.'); setProcessando(false); return }
         const ws   = wb.Sheets[nome]
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false, dateNF: 'dd/mm/yyyy' })
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true })
         const data = rows.slice(2).filter(r => r?.[COL.DOCA] != null && String(r[COL.DOCA]).trim() !== '')
         const vistas = new Set()
         const docasBase = []
