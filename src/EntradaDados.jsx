@@ -127,7 +127,7 @@ function Countdown({ tsAlerta, onExpirar }) {
 }
 
 // ── Seletor de sessões ────────────────────────────────────────
-function SeletorSessoes({ sessoes, sessaoId, onSelecionar, onNovaUpload }) {
+function SeletorSessoes({ sessoes, sessaoId, onSelecionar, onNovaUpload, onRemover }) {
   const [aberto, setAberto] = useState(false)
   const sessaoAtual = sessoes.find(s => s.id === sessaoId)
 
@@ -198,11 +198,28 @@ function SeletorSessoes({ sessoes, sessaoId, onSelecionar, onNovaUpload }) {
                       {s.totalDocas} docas · por {s.criadoPor?.split('@')[0]}
                     </div>
                   </div>
-                  {ativa && (
-                    <span style={{ fontSize: 10, background: 'var(--yellow)', color: '#1a1a1a', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>
-                      ATIVA
-                    </span>
-                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {ativa && (
+                      <span style={{ fontSize: 10, background: 'var(--yellow)', color: '#1a1a1a', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>
+                        ATIVA
+                      </span>
+                    )}
+                    {onRemover && (
+                      <button
+                        onClick={e => {
+                          e.stopPropagation()
+                          if (confirm(`Remover sessão de ${s.data} (upload ${hrUpload || ''})? As docas serão apagadas.`)) {
+                            onRemover(s.id)
+                            setAberto(false)
+                          }
+                        }}
+                        style={{ background: 'var(--red-dim)', border: '1px solid var(--red)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: 'var(--red)', display: 'flex', alignItems: 'center' }}
+                        title="Remover sessão"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             )
@@ -344,6 +361,19 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
   }
 
   async function handleSolicitar() { await handleFinalizar() }
+
+  async function encerrarSessaoById(id) {
+    try {
+      const { getDocs, collection, deleteDoc, doc } = await import('firebase/firestore')
+      const { db } = await import('./firebase')
+      const snaps = await getDocs(collection(db, 'docas'))
+      const docasSessao = snaps.docs.filter(d => d.data().sessaoId === id || (!d.data().sessaoId && id === sessaoId))
+      await Promise.all(docasSessao.map(d => deleteDoc(d.ref)))
+      await deleteDoc(doc(db, 'sessoes', id))
+    } catch (err) {
+      alert('Erro ao remover sessão: ' + err.message)
+    }
+  }
 
   async function salvarNoSheets() {
     setSalvando(true); setErro('')
@@ -653,6 +683,7 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
             sessaoId={sessaoId}
             onSelecionar={selecionarSessao}
             onNovaUpload={ehFiscal ? () => setMostrarUpload(true) : null}
+            onRemover={ehFiscal ? encerrarSessaoById : null}
           />
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
