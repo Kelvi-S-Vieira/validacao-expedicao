@@ -40,26 +40,26 @@ function formatarHorario(val) {
 
 function formatarData(val) {
   if (!val) return ''
-  // Objeto Date — sempre confiável
-  if (val instanceof Date && !isNaN(val)) {
-    const d = String(val.getDate()).padStart(2, '0')
-    const m = String(val.getMonth() + 1).padStart(2, '0')
-    const y = val.getFullYear()
+  // Número serial do Excel (ex: 46050) → converte para dd/mm/yyyy
+  if (typeof val === 'number') {
+    // Excel serial: dias desde 01/01/1900 (com bug do ano 1900)
+    const date = new Date(Math.round((val - 25569) * 86400 * 1000))
+    const d = String(date.getUTCDate()).padStart(2, '0')
+    const m = String(date.getUTCMonth() + 1).padStart(2, '0')
+    const y = date.getUTCFullYear()
     return `${d}/${m}/${y}`
   }
+  if (val instanceof Date && !isNaN(val)) {
+    const d = String(val.getUTCDate()).padStart(2, '0')
+    const m = String(val.getUTCMonth() + 1).padStart(2, '0')
+    const y = val.getUTCFullYear()
+    return `${d}/${m}/${y}`
+  }
+  // String — assume já está em dd/mm/yyyy
   const str = String(val).trim()
   const partes = str.split('/')
   if (partes.length === 3) {
-    let p0 = partes[0], p1 = partes[1], p2 = partes[2]
-    const n0 = Number(p0), n1 = Number(p1)
-    let d, m, y
-    // XLSX com dateNF 'dd/mm/yyyy' retorna string no formato dd/mm/yyyy
-    // Mas às vezes retorna MM/DD/YYYY (americano) — detecta pelo contexto:
-    // Se p1 > 12 → definitivamente dia no p1 → formato MM/DD/YYYY → inverte
-    if (n1 > 12) { d = p1; m = p0 }
-    else { d = p0; m = p1 } // assume dd/mm (padrão pt-BR)
-    y = p2.length === 2 ? `20${p2}` : p2
-    return `${d.padStart(2,'0')}/${m.padStart(2,'0')}/${y}`
+    return `${partes[0].padStart(2,'0')}/${partes[1].padStart(2,'0')}/${partes[2].length === 2 ? '20'+partes[2] : partes[2]}`
   }
   return str
 }
@@ -277,7 +277,7 @@ export default function EntradaDados({ usuario, conferentes = [], onDadosSalvos 
     const reader = new FileReader()
     reader.onload = async (e) => {
       try {
-        const wb   = XLSX.read(e.target.result, { type: 'binary', cellDates: true })
+        const wb   = XLSX.read(e.target.result, { type: 'binary', cellDates: false })
         const nome = wb.SheetNames.find(n => n.trim() === '121')
         if (!nome) { setErro('Aba "121" não encontrada.'); setProcessando(false); return }
         const ws   = wb.Sheets[nome]
