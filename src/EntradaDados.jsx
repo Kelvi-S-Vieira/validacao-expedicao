@@ -40,8 +40,22 @@ function formatarHorario(val) {
 
 function formatarData(val) {
   if (!val) return ''
-  if (val instanceof Date) return val.toLocaleDateString('pt-BR')
-  return String(val)
+  if (val instanceof Date) {
+    const d = String(val.getDate()).padStart(2, '0')
+    const m = String(val.getMonth() + 1).padStart(2, '0')
+    const y = val.getFullYear()
+    return `${d}/${m}/${y}`
+  }
+  // Se já é string no formato d/m/yy ou d/m/yyyy, normaliza
+  const str = String(val).trim()
+  const partes = str.split('/')
+  if (partes.length === 3) {
+    const d = partes[0].padStart(2, '0')
+    const m = partes[1].padStart(2, '0')
+    const y = partes[2].length === 2 ? `20${partes[2]}` : partes[2]
+    return `${d}/${m}/${y}`
+  }
+  return str
 }
 
 function horarioAtual() {
