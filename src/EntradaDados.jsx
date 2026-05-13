@@ -421,15 +421,18 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
 
         const data = rows.slice(2).filter(r => r?.[COL.DOCA] != null && String(r[COL.DOCA]).trim() !== '')
 
-        // Agrupa linhas por doca — cada doca pode ter múltiplas lojas
+        // Mapa de docas — cada doca tem um mapa de remessas
+        // Cada remessa acumula suas próprias lojas (N linhas por remessa)
         const docaMap = new Map()
         for (const r of data) {
-          const doca = String(r[COL.DOCA]).trim()
+          const doca    = String(r[COL.DOCA]).trim()
+          const remessa = String(r[COL.REMESSA] || '').trim()
+
           if (!docaMap.has(doca)) {
             const horario = formatarHorario(r[COL.HORARIO])
             docaMap.set(doca, {
               doca,
-              remessa:    String(r[COL.REMESSA]    || '').trim(),
+              remessa,
               data:       formatarData(r[COL.DATA]),
               horario,
               gpp:        formatarHorario(r[COL.GPP]),
@@ -437,21 +440,36 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
               loja:       String(r[COL.LOJA]        || '').trim(),
               supervisor: detectarSupervisor(r[COL.HORARIO]),
               turno:      detectarSupervisor(r[COL.HORARIO]) === 'Virginia' ? '1º Turno' : '2º Turno',
-              composicao: [], // lista de { seq, loja, nomeFilial, cabideCx }
+              remessaMap: new Map(), // { remessa -> [{ seq, loja, nomeFilial, cabideCx }] }
             })
           }
-          // Adiciona a loja à composição da doca
-          const seq       = r[COL.SEQ]         != null ? String(r[COL.SEQ]).trim()         : ''
-          const loja      = r[COL.LOJA]        != null ? String(r[COL.LOJA]).trim()        : ''
-          const nomeFil   = r[COL.NOME_FILIAL] != null ? String(r[COL.NOME_FILIAL]).trim() : ''
-          const cabideCx  = colCabideCx >= 0 && r[colCabideCx] != null ? Math.round(Number(r[colCabideCx])) : null
+
+          // Acumula lojas por remessa
+          const docaEntry = docaMap.get(doca)
+          if (!docaEntry.remessaMap.has(remessa)) {
+            docaEntry.remessaMap.set(remessa, [])
+          }
+
+          const seq      = r[COL.SEQ]         != null ? String(r[COL.SEQ]).trim()         : ''
+          const loja     = r[COL.LOJA]        != null ? String(r[COL.LOJA]).trim()        : ''
+          const nomeFil  = r[COL.NOME_FILIAL] != null ? String(r[COL.NOME_FILIAL]).trim() : ''
+          const cabideCx = colCabideCx >= 0 && r[colCabideCx] != null ? Math.round(Number(r[colCabideCx])) : null
 
           if (loja) {
-            docaMap.get(doca).composicao.push({ seq, loja, nomeFilial: nomeFil, cabideCx })
+            docaEntry.remessaMap.get(remessa).push({ seq, loja, nomeFilial: nomeFil, cabideCx, remessa })
           }
         }
 
-        const docasBase = Array.from(docaMap.values())
+        // Converte remessaMap para array de composição — achata todas as lojas de todas as remessas
+        // A composição completa da doca fica no campo composicao
+        // O filtro por remessa é feito na hora de exibir
+        const docasBase = Array.from(docaMap.values()).map(d => {
+          const composicao = []
+          d.remessaMap.forEach(lojas => composicao.push(...lojas))
+          const { remessaMap, ...resto } = d
+          return { ...resto, composicao }
+        })
+
         if (docasBase.length === 0) { setErro('Nenhuma doca encontrada.'); setProcessando(false); return }
         await criarSessao(docasBase)
         setMostrarUpload(false)
@@ -634,7 +652,9 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
   // ── TELA DE VALIDAÇÃO ─────────────────────────────────────
   if (tela === 'validar' && docaAtiva) {
     const docaObj     = docas.find(d => d.doca === docaAtiva)
-    const composicao  = docaObj?.composicao || []
+    const composicao  = (docaObj?.composicao || []).filter(l =>
+      !l.remessa || l.remessa === docaObj?.remessa
+    )
     const pExp        = Number(valLocal.pendExp || 0)
     const pFrente     = Number(valLocal.pendFrente || 0)
     const pDentro     = Number(valLocal.pendDentro || 0)
