@@ -22,31 +22,43 @@ const SPREADSHEET_ID = import.meta.env.VITE_SPREADSHEET_ID
 
 // ── PROTEÇÃO 3: Fix de orientação mobile ─────────────────
 function useResponsive() {
-  const getWidth = () => Math.min(window.innerWidth, window.screen.width)
-  const [width, setWidth] = useState(getWidth())
+  const measure = () => ({
+    isMobile:  window.innerWidth < 480,
+    isTablet:  window.innerWidth >= 480 && window.innerWidth < 1024,
+    isDesktop: window.innerWidth >= 1024,
+    width:     window.innerWidth,
+  })
+
+  const [dims, setDims] = useState(measure)
 
   useEffect(() => {
-    const fn = () => {
-      // Aguarda o browser terminar a rotação antes de medir
-      setTimeout(() => setWidth(getWidth()), 150)
+    let raf = null
+
+    const update = () => {
+      if (raf) cancelAnimationFrame(raf)
+      // Usa requestAnimationFrame para garantir que o DOM já recalculou
+      raf = requestAnimationFrame(() => {
+        // Duplo rAF para dispositivos que ainda não terminaram de rotacionar
+        raf = requestAnimationFrame(() => setDims(measure()))
+      })
     }
-    window.addEventListener('resize', fn)
-    window.addEventListener('orientationchange', fn)
-    // Garante medição correta ao montar
-    screen.orientation?.addEventListener('change', fn)
+
+    // ResizeObserver é mais confiável que resize + orientationchange
+    const ro = new ResizeObserver(update)
+    ro.observe(document.documentElement)
+
+    window.addEventListener('orientationchange', update)
+    window.addEventListener('resize', update)
+
     return () => {
-      window.removeEventListener('resize', fn)
-      window.removeEventListener('orientationchange', fn)
-      screen.orientation?.removeEventListener('change', fn)
+      ro.disconnect()
+      window.removeEventListener('orientationchange', update)
+      window.removeEventListener('resize', update)
+      if (raf) cancelAnimationFrame(raf)
     }
   }, [])
 
-  return {
-    isMobile:  width < 480,
-    isTablet:  width >= 480 && width < 1024,
-    isDesktop: width >= 1024,
-    width,
-  }
+  return dims
 }
 
 async function buscarAbas() {
@@ -770,7 +782,11 @@ export default function App() {
         @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
         * { -webkit-tap-highlight-color: transparent; }
         input, select, textarea { font-size: 16px !important; }
-      `}</style>
+        /* Fix tela preta na rotação — usa dvh (dynamic viewport height) */
+        #root, body, html { min-height: 100dvh; min-height: 100vh; }
+        @media (orientation: landscape) { #root { min-height: 100dvh; } }
+        @media (orientation: portrait)  { #root { min-height: 100dvh; } }
+      \`}</style>
     </div>
   )
 }

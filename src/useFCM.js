@@ -1,10 +1,31 @@
 import { useEffect, useState } from 'react'
 import { getMessaging, getToken, onMessage } from 'firebase/messaging'
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, setDoc, deleteDoc, getDoc, serverTimestamp } from 'firebase/firestore'
 import { db, app } from './firebase'
 
 const VAPID_KEY     = import.meta.env.VITE_FIREBASE_VAPID_KEY
 const TOKEN_MAX_AGE = 30 * 24 * 60 * 60 * 1000 // 30 dias
+
+// ── Gera ou recupera ID único do dispositivo ──────────────
+function getDeviceId() {
+  let id = localStorage.getItem('gpp_device_id')
+  if (!id) {
+    id = `dev_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    localStorage.setItem('gpp_device_id', id)
+  }
+  return id
+}
+
+// ── Nome amigável do dispositivo ──────────────────────────
+function getDeviceName() {
+  const ua = navigator.userAgent
+  if (/iPhone/i.test(ua))  return 'iPhone'
+  if (/iPad/i.test(ua))    return 'iPad'
+  if (/Android/i.test(ua)) return 'Android'
+  if (/Mac/i.test(ua))     return 'Mac'
+  if (/Windows/i.test(ua)) return 'Windows'
+  return 'Dispositivo'
+}
 
 export function useFCM(usuario) {
   const [fcmToken, setFcmToken]           = useState(null)
@@ -25,7 +46,6 @@ export function useFCM(usuario) {
   // ── Escuta mensagens do Service Worker (foreground) ──────
   useEffect(() => {
     if (!navigator.serviceWorker) return
-
     const handler = event => {
       if (event.data?.type === 'FCM_FOREGROUND') {
         const { notification, data } = event.data.payload || {}
@@ -36,32 +56,28 @@ export function useFCM(usuario) {
         )
       }
       if (event.data?.type === 'ABRIR_APROVACAO') {
-        // App já trata isso em App.jsx via window.postMessage
         window.dispatchEvent(new CustomEvent('abrirAprovacao', { detail: event.data }))
       }
     }
-
     navigator.serviceWorker.addEventListener('message', handler)
     return () => navigator.serviceWorker.removeEventListener('message', handler)
   }, [])
 
   function adicionarNotificacao(title, body, data) {
     setNotificacoes(prev => [{
-      id:    Date.now(),
-      title,
-      body,
-      data,
-      lida:  false,
-      ts:    new Date().toLocaleTimeString('pt-BR'),
+      id: Date.now(), title, body, data, lida: false,
+      ts: new Date().toLocaleTimeString('pt-BR'),
     }, ...prev.slice(0, 9)])
   }
 
-  // ── PROTEÇÃO 4: Verifica expiração do token ──────────────
+  // ── Verifica expiração do token deste dispositivo ────────
   async function verificarEInicializar() {
     try {
-      const tokenDoc = await getDoc(doc(db, 'fcm_tokens', usuario.uid))
-      if (tokenDoc.exists()) {
-        const { updatedAt } = tokenDoc.data()
+      const deviceId  = getDeviceId()
+      const tokenRef  = doc(db, 'fcm_tokens', usuario.uid, 'devices', deviceId)
+      const tokenSnap = await getDoc(tokenRef)
+      if (tokenSnap.exists()) {
+        const { updatedAt } = tokenSnap.data()
         const idade = Date.now() - (updatedAt?.toMillis?.() || 0)
         if (idade > TOKEN_MAX_AGE) {
           console.log('[FCM] Token expirado — renovando...')
@@ -81,8 +97,6 @@ export function useFCM(usuario) {
       if (perm !== 'granted') return
 
       const messaging = getMessaging(app)
-
-      // Registra o SW e aguarda estar pronto
       const sw = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' })
       await navigator.serviceWorker.ready
 
@@ -94,29 +108,24 @@ export function useFCM(usuario) {
       if (token) {
         setFcmToken(token)
         setTokenExpirado(false)
-        await salvarTokenFirestore(token, usuario)
-        console.log('[FCM] Token registrado:', token.substring(0, 30) + '...')
+        await salvarTokenDispositivo(token, usuario)
+        console.log('[FCM] Token registrado para dispositivo:', getDeviceId())
       }
 
-      // ── onMessage: quando app está em foreground ──────────
-      // O SW agora também intercepta o push e exibe a notificação nativa
-      // Aqui apenas adicionamos na lista de notificações da UI
       onMessage(messaging, payload => {
         const { title, body } = payload.notification || {}
         const data = payload.data || {}
-        console.log('[FCM] Foreground message recebida:', title)
+        console.log('[FCM] Mensagem foreground:', title)
         adicionarNotificacao(
           title || 'Validação de Expedição',
           body  || 'Nova pendência',
           data
         )
-        // O SW vai cuidar de mostrar a notificação nativa
       })
 
     } catch (err) {
       console.error('[FCM] Erro:', err)
-      if (err.code === 'messaging/token-unsubscribe-failed' ||
-          err.message?.includes('404') || err.message?.includes('410')) {
+      if (err.message?.includes('404') || err.message?.includes('410')) {
         setTokenExpirado(true)
       }
     }
@@ -134,15 +143,23 @@ export function useFCM(usuario) {
   }
 }
 
-async function salvarTokenFirestore(token, usuario) {
+// ── Salva token na subcoleção devices/{deviceId} ──────────
+async function salvarTokenDispositivo(token, usuario) {
   try {
-    await setDoc(doc(db, 'fcm_tokens', usuario.uid), {
+    const deviceId   = getDeviceId()
+    const deviceName = getDeviceName()
+    const tokenRef   = doc(db, 'fcm_tokens', usuario.uid, 'devices', deviceId)
+
+    await setDoc(tokenRef, {
       token,
+      deviceId,
+      deviceName,
       email:     usuario.email,
       perfil:    usuario.perfil,
       updatedAt: serverTimestamp(),
     })
-    console.log('[FCM] Token salvo no Firestore')
+
+    console.log(`[FCM] Token salvo: ${deviceName} (${deviceId})`)
   } catch (err) {
     console.error('[FCM] Erro ao salvar token:', err)
   }
