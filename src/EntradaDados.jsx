@@ -352,7 +352,8 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
     else if (resultado >= 3)              { novoStatus = 'AGUARD_COORD';   tsAlerta = new Date() }
     try {
       await finalizarDoca(docaAtiva, {
-        status: novoStatus, hrFim: agora, hrValidado: agora,
+        status: novoStatus,
+        hrFim: agora, hrValidado: agora,
         valDoca: calcularTempo(docaObj?.hrInicio, agora),
         pendExp: pExp, pendFrente: pFrente, pendDentro: pDentro,
         logExp: lExp, logFrente: lFrente, logDentro: lDentro,
@@ -361,6 +362,24 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
         cargaCertificada: valLocal.cargaCertificada || false,
         resultado, tsAlerta,
       })
+
+      // ── Dispara push imediatamente via WebApp ──
+      if (novoStatus === 'AGUARD_GERENTE' || novoStatus === 'AGUARD_COORD') {
+        const tipoPerfil = novoStatus === 'AGUARD_GERENTE' ? 'GERENTE' : 'COORDENADOR'
+        fetch(import.meta.env.VITE_APPS_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({
+            acao: 'push',
+            doca: docaAtiva,
+            resultado,
+            logResultado: logResult,
+            tipoPerfil,
+          })
+        }).catch(err => console.warn('[Push] Erro ao disparar:', err))
+        // Não aguarda — dispara em background sem bloquear o fluxo
+      }
+
       clearTimeout(autoSaveTimer.current)
       setDocaAtiva(null); setValLocal({}); setTela('lista')
     } catch (err) { setErro('Erro ao finalizar: ' + err.message) }
