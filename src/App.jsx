@@ -782,11 +782,8 @@ export default function App() {
         @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
         * { -webkit-tap-highlight-color: transparent; }
         input, select, textarea { font-size: 16px !important; }
-        /* Fix tela preta na rotação — usa dvh (dynamic viewport height) */
         #root, body, html { min-height: 100dvh; min-height: 100vh; }
-        @media (orientation: landscape) { #root { min-height: 100dvh; } }
-        @media (orientation: portrait)  { #root { min-height: 100dvh; } }
-      \`}</style>
+      `}</style>
     </div>
   )
 }
