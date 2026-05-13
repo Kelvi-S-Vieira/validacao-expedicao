@@ -431,7 +431,7 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
               remessa:    String(r[COL.REMESSA]    || '').trim(),
               data:       formatarData(r[COL.DATA]),
               horario,
-              gpp:        String(r[COL.GPP]        || '').trim(),
+              gpp:        formatarHorario(r[COL.GPP]),
               nomeFilial: String(r[COL.NOME_FILIAL] || '').trim(),
               loja:       String(r[COL.LOJA]        || '').trim(),
               supervisor: detectarSupervisor(r[COL.HORARIO]),
@@ -443,7 +443,7 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
           const seq       = r[COL.SEQ]         != null ? String(r[COL.SEQ]).trim()         : ''
           const loja      = r[COL.LOJA]        != null ? String(r[COL.LOJA]).trim()        : ''
           const nomeFil   = r[COL.NOME_FILIAL] != null ? String(r[COL.NOME_FILIAL]).trim() : ''
-          const cabideCx  = colCabideCx >= 0 && r[colCabideCx] != null ? Number(r[colCabideCx]) : null
+          const cabideCx  = colCabideCx >= 0 && r[colCabideCx] != null ? Math.round(Number(r[colCabideCx])) : null
 
           if (loja) {
             docaMap.get(doca).composicao.push({ seq, loja, nomeFilial: nomeFil, cabideCx })
