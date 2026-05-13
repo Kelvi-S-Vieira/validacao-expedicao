@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   FileSpreadsheet, Play, CheckCircle, Clock, Lock, Timer, Send,
-  Trash2, ShieldCheck, Save, ChevronDown, AlertTriangle, RefreshCw
+  Trash2, ShieldCheck, Save, ChevronDown, AlertTriangle, RefreshCw,
+  Package
 } from 'lucide-react'
 import * as XLSX from 'xlsx-js-style'
 import { useSessao } from './useSessao'
@@ -12,8 +13,10 @@ const COL = {
   DATA:        20,
   HORARIO:     24,
   GPP:         23,
-  LOJA:        30,
-  NOME_FILIAL: 31,
+  SEQ:         30,
+  LOJA:        31,
+  NOME_FILIAL: 32,
+  // CABIDE CX é buscado pelo nome do cabeçalho — não por índice fixo
 }
 
 function detectarSupervisor(horario) {
@@ -135,6 +138,136 @@ function Countdown({ tsAlerta, onExpirar }) {
   )
 }
 
+// ── SEÇÃO DE COMPOSIÇÃO POR LOJA ─────────────────────────────────────────────
+function ComposicaoCabide({ composicao, cabideConferido, onChange }) {
+  if (!composicao || composicao.length === 0) return null
+
+  const totalPrevisto  = composicao.reduce((s, l) => s + (Number(l.cabideCx) || 0), 0)
+  const totalConferido = composicao.reduce((s, l) => s + (Number(cabideConferido[l.loja] ?? '') || 0), 0)
+  const diferenca      = totalConferido - totalPrevisto
+
+  // Quantas lojas têm divergência ou não foram conferidas
+  const divergentes    = composicao.filter(l => {
+    const conf = cabideConferido[l.loja]
+    return conf !== '' && conf !== undefined && Number(conf) !== Number(l.cabideCx)
+  }).length
+  const naoConferidas  = composicao.filter(l => cabideConferido[l.loja] === '' || cabideConferido[l.loja] === undefined).length
+
+  const statusIcon = (loja, previsto) => {
+    const conf = cabideConferido[loja]
+    if (conf === '' || conf === undefined) return { icon: '—', color: 'var(--text-muted)' }
+    const n = Number(conf), p = Number(previsto)
+    if (n === p) return { icon: '✓', color: 'var(--green)' }
+    if (n > p)   return { icon: '↑', color: 'var(--red)' }
+    return       { icon: '↓', color: 'var(--orange)' }
+  }
+
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ fontSize:11, fontWeight:700, color:'var(--text-muted)', marginBottom:10, textTransform:'uppercase', letterSpacing:'0.5px', display:'flex', alignItems:'center', gap:6 }}>
+        <Package size={13} color="var(--yellow)" />
+        Composição — Cabide CX por loja
+      </div>
+
+      <div style={{ background:'var(--bg-secondary)', borderRadius:10, border:'1px solid var(--border)', overflow:'hidden' }}>
+        {/* Cabeçalho da tabela */}
+        <div style={{ display:'grid', gridTemplateColumns:'36px 56px 1fr 72px 80px 28px', gap:0, padding:'7px 12px', borderBottom:'1px solid var(--border)', background:'var(--bg-card)' }}>
+          {['Seq','Loja','Nome filial','Previsto','Conferido',''].map((h, i) => (
+            <div key={i} style={{ fontSize:10, fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.4px', textAlign: i >= 3 ? 'center' : 'left' }}>{h}</div>
+          ))}
+        </div>
+
+        {/* Linhas por loja */}
+        {composicao.map((linha, idx) => {
+          const conf  = cabideConferido[linha.loja]
+          const st    = statusIcon(linha.loja, linha.cabideCx)
+          const filled = conf !== '' && conf !== undefined
+          const rowBg  = idx % 2 === 0 ? 'transparent' : 'var(--bg-card)'
+
+          return (
+            <div key={linha.loja} style={{ display:'grid', gridTemplateColumns:'36px 56px 1fr 72px 80px 28px', gap:0, padding:'8px 12px', borderBottom: idx < composicao.length - 1 ? '1px solid var(--border)' : 'none', background: rowBg, alignItems:'center' }}>
+              {/* SEQ */}
+              <div style={{ fontSize:11, color:'var(--text-muted)', fontWeight:600 }}>{linha.seq}</div>
+
+              {/* LOJA */}
+              <div style={{ fontSize:12, fontWeight:700, color:'var(--text-primary)' }}>{linha.loja}</div>
+
+              {/* NOME FILIAL */}
+              <div style={{ fontSize:12, color:'var(--text-secondary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', paddingRight:8 }}>{linha.nomeFilial}</div>
+
+              {/* PREVISTO */}
+              <div style={{ fontSize:13, fontWeight:700, color:'var(--text-primary)', textAlign:'center' }}>
+                {linha.cabideCx != null && linha.cabideCx !== '' ? linha.cabideCx : <span style={{ color:'var(--text-muted)', fontWeight:400 }}>—</span>}
+              </div>
+
+              {/* INPUT CONFERIDO */}
+              <div style={{ textAlign:'center' }}>
+                <input
+                  type="number"
+                  min="0"
+                  value={conf ?? ''}
+                  placeholder="—"
+                  onChange={e => onChange(linha.loja, e.target.value)}
+                  style={{
+                    width: 64,
+                    padding: '5px 8px',
+                    borderRadius: 6,
+                    border: `1px solid ${filled ? (st.color === 'var(--green)' ? 'var(--green)' : st.color) : 'var(--border)'}`,
+                    background: filled ? (st.color === 'var(--green)' ? 'var(--green-dim)' : st.color === 'var(--red)' ? 'var(--red-dim)' : 'var(--orange-dim)') : 'var(--bg-primary)',
+                    color: filled ? st.color : 'var(--text-primary)',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    textAlign: 'center',
+                    outline: 'none',
+                  }}
+                  onFocus={e => (e.target.style.borderColor = 'var(--yellow)')}
+                  onBlur={e => (e.target.style.borderColor = filled ? st.color : 'var(--border)')}
+                />
+              </div>
+
+              {/* ÍCONE STATUS */}
+              <div style={{ fontSize:14, fontWeight:900, color: st.color, textAlign:'center' }}>{st.icon}</div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Totais */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:8, marginTop:10 }}>
+        {[
+          { label:'Total previsto',  val: `${totalPrevisto} cx`,   cor:'var(--text-primary)' },
+          { label:'Total conferido', val: totalConferido > 0 || composicao.some(l => cabideConferido[l.loja] !== undefined && cabideConferido[l.loja] !== '') ? `${totalConferido} cx` : '—', cor: diferenca === 0 && totalConferido > 0 ? 'var(--green)' : diferenca !== 0 && totalConferido > 0 ? 'var(--orange)' : 'var(--text-muted)' },
+          { label:'Diferença',       val: totalConferido > 0 || composicao.some(l => cabideConferido[l.loja] !== undefined && cabideConferido[l.loja] !== '') ? `${diferenca >= 0 ? '+' : ''}${diferenca} cx` : '—', cor: diferenca === 0 ? 'var(--green)' : 'var(--orange)' },
+        ].map((t, i) => (
+          <div key={i} style={{ background:'var(--bg-secondary)', borderRadius:8, padding:'10px 12px', border:'1px solid var(--border)' }}>
+            <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:3, textTransform:'uppercase', letterSpacing:'0.4px' }}>{t.label}</div>
+            <div style={{ fontSize:18, fontWeight:900, color:t.cor }}>{t.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Alerta de divergências */}
+      {(divergentes > 0 || naoConferidas > 0) && (
+        <div style={{ marginTop:8, padding:'8px 12px', background:'var(--orange-dim)', border:'1px solid var(--orange)', borderRadius:8, fontSize:12, color:'var(--orange)', display:'flex', alignItems:'center', gap:8 }}>
+          <AlertTriangle size={13} />
+          {[
+            divergentes  > 0 ? `${divergentes} loja${divergentes>1?'s':''} com divergência` : '',
+            naoConferidas > 0 ? `${naoConferidas} loja${naoConferidas>1?'s':''} não conferida${naoConferidas>1?'s':''}` : '',
+          ].filter(Boolean).join(' · ')}
+        </div>
+      )}
+
+      {/* Tudo ok */}
+      {divergentes === 0 && naoConferidas === 0 && totalConferido > 0 && (
+        <div style={{ marginTop:8, padding:'8px 12px', background:'var(--green-dim)', border:'1px solid var(--green)', borderRadius:8, fontSize:12, color:'var(--green)', display:'flex', alignItems:'center', gap:8 }}>
+          <CheckCircle size={13} />
+          Todas as lojas conferidas sem divergência
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SeletorSessoes({ sessoes, sessaoId, onSelecionar, onNovaUpload, onRemover }) {
   const [aberto, setAberto] = useState(false)
   const sessaoAtual = sessoes.find(s => s.id === sessaoId)
@@ -167,14 +300,13 @@ function SeletorSessoes({ sessoes, sessaoId, onSelecionar, onNovaUpload, onRemov
             const ativa    = s.id === sessaoId
             const ts       = s.criadoEm?.toMillis?.()
             const hrUpload = ts ? new Date(ts).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }) : null
-            // Compara datas como YYYYMMDD (string) — evita bugs de fuso horário
             const toYMD = d => {
               if (!d) return ''
               const p = d.split('/')
               return `${p[2]}${p[1].padStart(2,'0')}${p[0].padStart(2,'0')}`
             }
             const agoraStr   = new Date().toLocaleString('pt-BR', { timeZone:'America/Sao_Paulo' })
-            const hoje       = agoraStr.split(',')[0].trim() // dd/mm/yyyy
+            const hoje       = agoraStr.split(',')[0].trim()
             const antiga     = s.data && toYMD(s.data) < toYMD(hoje)
             return (
               <div key={s.id} onClick={() => { onSelecionar(s.id); setAberto(false) }}
@@ -224,21 +356,20 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
   const [tela, setTela]               = useState('lista')
   const [docaAtiva, setDocaAtiva]     = useState(null)
   const [valLocal, setValLocal]       = useState({})
+  const [cabideConferido, setCabideConferido] = useState({}) // { [loja]: valor_conferido }
   const [erro, setErro]               = useState('')
   const [salvando, setSalvando]       = useState(false)
   const [dragOver, setDragOver]       = useState(false)
   const [processando, setProcessando] = useState(false)
   const [mostrarUpload, setMostrarUpload] = useState(false)
-  const [autoSaveStatus, setAutoSaveStatus] = useState(null) // 'salvando' | 'salvo' | 'erro'
+  const [autoSaveStatus, setAutoSaveStatus] = useState(null)
   const autoSaveTimer = useRef(null)
 
   const ehFiscal    = usuario?.perfil === 'FISCAL'
   const confsAtivos = conferentes.filter(c => c.ativo)
-
-  // ── PROTEÇÃO 1: Alerta sessões do dia anterior ────────────
   const sessoesAntigas = sessoesDiaAnterior?.() || []
 
-  // ── PROTEÇÃO 3: Auto-save ao mudar campos ─────────────────
+  // ── Auto-save ─────────────────────────────────────────────
   const autoSave = useCallback(async (campos) => {
     if (!docaAtiva || !sessaoId) return
     clearTimeout(autoSaveTimer.current)
@@ -251,10 +382,9 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
       } catch {
         setAutoSaveStatus('erro')
       }
-    }, 1500) // debounce 1.5s
+    }, 1500)
   }, [docaAtiva, sessaoId, atualizarDoca])
 
-  // Ao mudar valLocal durante validação, auto-salva os campos preenchidos
   useEffect(() => {
     if (tela !== 'validar' || !docaAtiva) return
     const campos = {}
@@ -265,9 +395,12 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
     if (valLocal.logFrente  !== '' && valLocal.logFrente  != null) campos.logFrente  = Number(valLocal.logFrente)
     if (valLocal.logDentro  !== '' && valLocal.logDentro  != null) campos.logDentro  = Number(valLocal.logDentro)
     if (valLocal.observacao != null) campos.observacao = valLocal.observacao
+    // Salva também a conferência de cabide no auto-save
+    if (Object.keys(cabideConferido).length > 0) campos.cabideConferido = cabideConferido
     if (Object.keys(campos).length > 0) autoSave(campos)
-  }, [valLocal.pendExp, valLocal.pendFrente, valLocal.pendDentro, valLocal.logExp, valLocal.logFrente, valLocal.logDentro, valLocal.observacao])
+  }, [valLocal.pendExp, valLocal.pendFrente, valLocal.pendDentro, valLocal.logExp, valLocal.logFrente, valLocal.logDentro, valLocal.observacao, cabideConferido])
 
+  // ── Processamento do arquivo ──────────────────────────────
   async function processarArquivo(file) {
     setErro(''); setProcessando(true)
     const reader = new FileReader()
@@ -278,15 +411,22 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
         if (!nome) { setErro('Aba "121" não encontrada.'); setProcessando(false); return }
         const ws   = wb.Sheets[nome]
         const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:null, raw:true })
+
+        // Detecta índice da coluna CABIDE CX pelo cabeçalho (linha 0 ou 1)
+        const cabecalho = rows[0] || []
+        const colCabideCx = cabecalho.findIndex(c =>
+          c && String(c).toUpperCase().replace(/\s+/g,'').includes('CABIDECX')
+        )
+
         const data = rows.slice(2).filter(r => r?.[COL.DOCA] != null && String(r[COL.DOCA]).trim() !== '')
-        const vistas = new Set()
-        const docasBase = []
+
+        // Agrupa linhas por doca — cada doca pode ter múltiplas lojas
+        const docaMap = new Map()
         for (const r of data) {
           const doca = String(r[COL.DOCA]).trim()
-          if (!vistas.has(doca)) {
-            vistas.add(doca)
+          if (!docaMap.has(doca)) {
             const horario = formatarHorario(r[COL.HORARIO])
-            docasBase.push({
+            docaMap.set(doca, {
               doca,
               remessa:    String(r[COL.REMESSA]    || '').trim(),
               data:       formatarData(r[COL.DATA]),
@@ -296,9 +436,21 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
               loja:       String(r[COL.LOJA]        || '').trim(),
               supervisor: detectarSupervisor(r[COL.HORARIO]),
               turno:      detectarSupervisor(r[COL.HORARIO]) === 'Virginia' ? '1º Turno' : '2º Turno',
+              composicao: [], // lista de { seq, loja, nomeFilial, cabideCx }
             })
           }
+          // Adiciona a loja à composição da doca
+          const seq       = r[COL.SEQ]         != null ? String(r[COL.SEQ]).trim()         : ''
+          const loja      = r[COL.LOJA]        != null ? String(r[COL.LOJA]).trim()        : ''
+          const nomeFil   = r[COL.NOME_FILIAL] != null ? String(r[COL.NOME_FILIAL]).trim() : ''
+          const cabideCx  = colCabideCx >= 0 && r[colCabideCx] != null ? Number(r[colCabideCx]) : null
+
+          if (loja) {
+            docaMap.get(doca).composicao.push({ seq, loja, nomeFilial: nomeFil, cabideCx })
+          }
         }
+
+        const docasBase = Array.from(docaMap.values())
         if (docasBase.length === 0) { setErro('Nenhuma doca encontrada.'); setProcessando(false); return }
         await criarSessao(docasBase)
         setMostrarUpload(false)
@@ -318,6 +470,7 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
     try {
       await iniciarDoca(doca.doca, valLocal.conferente, horarioAtual())
       setValLocal({ conferente: valLocal.conferente, cargaCertificada: false })
+      setCabideConferido({})
       setDocaAtiva(doca.doca)
       setTela('validar')
     } catch (err) { setErro(err.message) }
@@ -332,19 +485,21 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
       hrLiberado: doca.hrLiberado || '', observacao: doca.observacao || '',
       cargaCertificada: doca.cargaCertificada || false,
     })
+    // Restaura conferência de cabide salva anteriormente
+    setCabideConferido(doca.cabideConferido || {})
     setTela('validar')
   }
 
   async function handleFinalizar() {
-    const docaObj  = docas.find(d => d.doca === docaAtiva)
-    const agora    = horarioAtual()
-    const pExp     = Number(valLocal.pendExp || 0)
-    const pFrente  = Number(valLocal.pendFrente || 0)
-    const pDentro  = Number(valLocal.pendDentro || 0)
+    const docaObj   = docas.find(d => d.doca === docaAtiva)
+    const agora     = horarioAtual()
+    const pExp      = Number(valLocal.pendExp || 0)
+    const pFrente   = Number(valLocal.pendFrente || 0)
+    const pDentro   = Number(valLocal.pendDentro || 0)
     const resultado = pExp - pFrente - pDentro
-    const lExp     = Number(valLocal.logExp || 0)
-    const lFrente  = Number(valLocal.logFrente || 0)
-    const lDentro  = Number(valLocal.logDentro || 0)
+    const lExp      = Number(valLocal.logExp || 0)
+    const lFrente   = Number(valLocal.logFrente || 0)
+    const lDentro   = Number(valLocal.logDentro || 0)
     const logResult = lExp - lFrente - lDentro
     const obsPartes = [valLocal.cargaCertificada ? 'CARGA CERTIFICADA' : '', valLocal.observacao || ''].filter(Boolean)
     let novoStatus = 'CONCLUIDO', tsAlerta = null
@@ -360,10 +515,10 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
         hrLiberado: valLocal.hrLiberado || '',
         observacao: obsPartes.join(' - '),
         cargaCertificada: valLocal.cargaCertificada || false,
+        cabideConferido,   // persiste a conferência de cabide
         resultado, tsAlerta,
       })
 
-      // ── Dispara push imediatamente via WebApp ──
       if (novoStatus === 'AGUARD_GERENTE' || novoStatus === 'AGUARD_COORD') {
         const tipoPerfil = novoStatus === 'AGUARD_GERENTE' ? 'GERENTE' : 'COORDENADOR'
         fetch(import.meta.env.VITE_APPS_SCRIPT_URL, {
@@ -377,11 +532,10 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
             tipoPerfil,
           })
         }).catch(err => console.warn('[Push] Erro ao disparar:', err))
-        // Não aguarda — dispara em background sem bloquear o fluxo
       }
 
       clearTimeout(autoSaveTimer.current)
-      setDocaAtiva(null); setValLocal({}); setTela('lista')
+      setDocaAtiva(null); setValLocal({}); setCabideConferido({}); setTela('lista')
     } catch (err) { setErro('Erro ao finalizar: ' + err.message) }
   }
 
@@ -476,9 +630,10 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
     return <TelaUpload onCancelar={sessoes.length > 0 ? () => setMostrarUpload(false) : null} />
   }
 
-  // ── VALIDAÇÃO ─────────────────────────────────────────────
+  // ── TELA DE VALIDAÇÃO ─────────────────────────────────────
   if (tela === 'validar' && docaAtiva) {
     const docaObj     = docas.find(d => d.doca === docaAtiva)
+    const composicao  = docaObj?.composicao || []
     const pExp        = Number(valLocal.pendExp || 0)
     const pFrente     = Number(valLocal.pendFrente || 0)
     const pDentro     = Number(valLocal.pendDentro || 0)
@@ -503,7 +658,6 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
             <h2 style={{ fontSize:18, fontWeight:800 }}>Doca {docaObj?.doca} — {docaObj?.nomeFilial}</h2>
             <div style={{ display:'flex', alignItems:'center', gap:8 }}>
               <p style={{ fontSize:12, color:'var(--text-muted)', margin:0 }}>Iniciado às {docaObj?.hrInicio} · {sessao?.data}</p>
-              {/* PROTEÇÃO 3: indicador de auto-save */}
               {autoSaveStatus === 'salvando' && <span style={{ fontSize:10, color:'var(--text-muted)', display:'flex', alignItems:'center', gap:3 }}><RefreshCw size={10} style={{ animation:'spin 1s linear infinite' }} /> Salvando...</span>}
               {autoSaveStatus === 'salvo'    && <span style={{ fontSize:10, color:'var(--green)' }}>✓ Salvo</span>}
               {autoSaveStatus === 'erro'     && <span style={{ fontSize:10, color:'var(--red)' }}>⚠ Erro ao salvar</span>}
@@ -512,6 +666,7 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
         </div>
 
         <div style={{ background:'var(--bg-card)', borderRadius:14, border:'1px solid var(--border)', overflow:'hidden' }}>
+          {/* Dados do arquivo */}
           <div style={{ background:'var(--bg-secondary)', padding:'14px 16px', borderBottom:'1px solid var(--border)' }}>
             <div style={{ fontSize:10, fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:10 }}>Dados do arquivo</div>
             <div style={{ display:'flex', gap:16, flexWrap:'wrap' }}>
@@ -532,6 +687,7 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
           </div>
 
           <div style={{ padding:'16px' }}>
+            {/* Fiscal de Prevenção */}
             <div style={{ marginBottom:18 }}>
               <label style={{ fontSize:11, fontWeight:700, color:'var(--text-muted)', display:'block', marginBottom:10, textTransform:'uppercase', letterSpacing:'0.5px' }}>Fiscal de Prevenção <span style={{ color:'var(--yellow)' }}>*</span></label>
               {confsAtivos.length === 0 ? <p style={{ fontSize:13, color:'var(--red)' }}>⚠️ Nenhum fiscal cadastrado.</p> : (
@@ -547,6 +703,14 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
               )}
             </div>
 
+            {/* ── COMPOSIÇÃO POR LOJA ── inserida aqui ── */}
+            <ComposicaoCabide
+              composicao={composicao}
+              cabideConferido={cabideConferido}
+              onChange={(loja, valor) => setCabideConferido(prev => ({ ...prev, [loja]: valor }))}
+            />
+
+            {/* Pendências */}
             <div style={{ fontSize:11, fontWeight:700, color:'var(--text-muted)', marginBottom:10, textTransform:'uppercase', letterSpacing:'0.5px' }}>Pendências</div>
             <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:12, marginBottom:12 }}>
               <div><Campo label="Pend. Expedição" valor={valLocal.pendExp} onChange={v => setValLocal(p => ({...p,pendExp:v}))} required /><div style={{ fontSize:10, color:'var(--text-muted)', marginTop:3 }}>Total na doca</div></div>
@@ -569,6 +733,7 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
               </div>
             )}
 
+            {/* Log localizado */}
             <div style={{ fontSize:11, fontWeight:700, color:'var(--text-muted)', marginBottom:10, textTransform:'uppercase', letterSpacing:'0.5px' }}>Log localizado</div>
             <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:12, marginBottom:12 }}>
               <div><Campo label="Log Expedição" valor={valLocal.logExp}    onChange={v => setValLocal(p => ({...p,logExp:v}))} /><div style={{ fontSize:10, color:'var(--text-muted)', marginTop:3 }}>Total no log</div></div>
@@ -590,8 +755,10 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
               </div>
             )}
 
+            {/* Hr Liberado */}
             <div style={{ marginBottom:16 }}><Campo label="Hr Liberado" valor={valLocal.hrLiberado} onChange={v => setValLocal(p => ({...p,hrLiberado:v}))} type="text" placeholder="Ex: 22:05" /></div>
 
+            {/* Carga Certificada */}
             <div style={{ marginBottom:16 }}>
               <label style={{ fontSize:11, fontWeight:700, color:'var(--text-muted)', display:'block', marginBottom:8, textTransform:'uppercase', letterSpacing:'0.5px' }}>Tipo de carga</label>
               <button type="button" onClick={() => setValLocal(p => ({...p,cargaCertificada:!p.cargaCertificada}))}
@@ -610,6 +777,7 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
               </button>
             </div>
 
+            {/* Observação */}
             <div style={{ marginBottom:16 }}>
               <Campo label="Observação" valor={valLocal.observacao} onChange={v => setValLocal(p => ({...p,observacao:v}))} type="text" placeholder={valLocal.cargaCertificada ? 'Ex: volume extra...' : 'Opcional...'} />
               {valLocal.cargaCertificada && <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:4 }}>Será salvo como: <strong style={{ color:'var(--green)' }}>CARGA CERTIFICADA{valLocal.observacao ? ` - ${valLocal.observacao}` : ''}</strong></div>}
@@ -640,7 +808,6 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
   return (
     <div style={{ maxWidth:860, margin:'0 auto', padding:'0 0 80px' }}>
 
-      {/* PROTEÇÃO 1: Alerta sessões do dia anterior */}
       {sessoesAntigas.length > 0 && (
         <div style={{ background:'var(--orange-dim)', border:'1px solid var(--orange)', borderRadius:12, padding:'12px 16px', marginBottom:16, display:'flex', alignItems:'center', gap:12 }}>
           <AlertTriangle size={18} color="var(--orange)" style={{ flexShrink:0 }} />
@@ -653,7 +820,6 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
         </div>
       )}
 
-      {/* PROTEÇÃO 4: Alerta token FCM expirado */}
       {tokenFCMExpirado && (
         <div style={{ background:'var(--red-dim)', border:'1px solid var(--red)', borderRadius:12, padding:'12px 16px', marginBottom:16, display:'flex', alignItems:'center', gap:12 }}>
           <AlertTriangle size={18} color="var(--red)" style={{ flexShrink:0 }} />
