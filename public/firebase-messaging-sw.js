@@ -12,90 +12,97 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging()
 
-// ── BACKGROUND: app fechado ou em segundo plano ───────────
+// ─── BACKGROUND (app minimizado ou fechado) ───────────────────────────────────
+// O FCM chama onBackgroundMessage quando a mensagem chega com "data only"
+// (sem campo "notification" no payload). Quando tem "notification", o browser
+// já exibe sozinho — mas perdemos o controle dos botões de ação.
+// Solução: mandamos SEMPRE "data only" no Apps Script e exibimos aqui.
 messaging.onBackgroundMessage(payload => {
-  console.log('[SW] Background message:', payload)
-  const notification = payload.notification || {}
-  const data = payload.data || {}
+  console.log('[SW] onBackgroundMessage recebido:', payload)
 
-  self.registration.showNotification(notification.title || 'Validação de Expedição', {
-    body: notification.body || 'Nova pendência aguardando aprovação',
-    icon: '/favicon.svg',
+  const data  = payload.data || {}
+  const title = data.title || 'Validação de Expedição'
+  const body  = data.body  || 'Nova pendência aguardando aprovação'
+  const doca  = data.doca  || ''
+  const nivel = data.nivel || 'COORDENADOR'
+
+  self.registration.showNotification(title, {
+    body,
+    icon:  '/favicon.svg',
     badge: '/favicon.svg',
-    tag: `doca-${data.doca || Date.now()}`,   // evita notificações duplicadas
+    tag:   `expedicao-${doca}`,       // evita duplicar notificação da mesma doca
     renotify: true,
-    requireInteraction: true,                  // mantém na tela até interagir
-    data: { doca: data.doca || '', url: 'https://validacao-expedicao.vercel.app/?aba=aprovacao' },
+    requireInteraction: true,         // mantém visível até o usuário interagir
+    data: { doca, nivel, url: 'https://validacao-expedicao.vercel.app/?aba=aprovacao' },
     actions: [
-      { action: 'aprovar',  title: '✅ Aprovar' },
+      { action: 'aprovar',  title: '✅ Aprovar'  },
       { action: 'ver',      title: '👁 Ver doca' },
-    ]
+    ],
   })
 })
 
-// ── FOREGROUND: app aberto na tela ────────────────────────
-// Intercepta mensagens do FCM mesmo com app em foco e exibe via SW
-// (necessário porque Chrome Android bloqueia new Notification() em foreground)
+// ─── PUSH DIRETO (fallback para quando o FCM não processa o onBackgroundMessage) ─
+// Garante que mesmo sem o SDK FCM interceptar, o push chega via evento nativo.
 self.addEventListener('push', event => {
   if (!event.data) return
-  let payload
+
+  let payload = {}
   try { payload = event.data.json() } catch { return }
 
-  const notification = payload.notification || {}
-  const data         = payload.data || {}
+  // Se o FCM já vai processar (tem campo 'fcm_options'), deixa o SDK cuidar
+  if (payload.fcm_options) return
 
-  // Verifica se há alguma janela do app aberta
-  const showNotif = self.registration.showNotification(
-    notification.title || 'Validação de Expedição', {
-      body: notification.body || 'Nova pendência aguardando aprovação',
-      icon: '/favicon.svg',
-      badge: '/favicon.svg',
-      tag: `doca-${data.doca || Date.now()}`,
-      renotify: true,
-      requireInteraction: true,
-      data: { doca: data.doca || '', url: 'https://validacao-expedicao.vercel.app/?aba=aprovacao' },
-      actions: [
-        { action: 'aprovar', title: '✅ Aprovar' },
-        { action: 'ver',     title: '👁 Ver doca' },
-      ]
-    }
-  )
+  const data  = payload.data || payload.notification || {}
+  const title = data.title || 'Validação de Expedição'
+  const body  = data.body  || 'Nova pendência'
+  const doca  = data.doca  || ''
 
   event.waitUntil(
-    Promise.all([
-      showNotif,
-      // Também envia mensagem para o app aberto atualizar notificações na UI
-      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
-        clients.forEach(client => {
-          client.postMessage({
-            type: 'FCM_FOREGROUND',
-            payload: { notification, data }
-          })
-        })
-      })
-    ])
+    self.registration.showNotification(title, {
+      body,
+      icon:  '/favicon.svg',
+      badge: '/favicon.svg',
+      tag:   `expedicao-${doca}`,
+      requireInteraction: true,
+      data:  { doca, url: 'https://validacao-expedicao.vercel.app/?aba=aprovacao' },
+      actions: [
+        { action: 'aprovar', title: '✅ Aprovar'  },
+        { action: 'ver',     title: '👁 Ver doca' },
+      ],
+    })
   )
 })
 
-// ── CLIQUE NA NOTIFICAÇÃO ─────────────────────────────────
+// ─── CLICK NA NOTIFICAÇÃO ────────────────────────────────────────────────────
 self.addEventListener('notificationclick', event => {
   event.notification.close()
+
   const doca = event.notification.data?.doca || ''
   const base = 'https://validacao-expedicao.vercel.app'
   const url  = event.action === 'aprovar'
     ? `${base}/?aba=aprovacao&doca=${doca}&acao=aprovar`
-    : `${base}/?aba=aprovacao`
+    : `${base}/?aba=aprovacao&doca=${doca}`
 
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+      // Se já tem uma aba aberta, foca e manda mensagem
       for (const client of clientList) {
-        if (client.url.includes('validacao-expedicao.vercel.app')) {
+        if (client.url.startsWith(base)) {
           client.focus()
-          client.postMessage({ type: 'ABRIR_APROVACAO', doca, acao: event.action })
+          client.postMessage({
+            type:  'ABRIR_APROVACAO',
+            doca,
+            acao:  event.action,
+          })
           return
         }
       }
-      return self.clients.openWindow(url)
+      // Senão, abre nova aba
+      return clients.openWindow(url)
     })
   )
 })
+
+// ─── INSTALL / ACTIVATE ──────────────────────────────────────────────────────
+self.addEventListener('install',  () => self.skipWaiting())
+self.addEventListener('activate', e  => e.waitUntil(clients.claim()))
