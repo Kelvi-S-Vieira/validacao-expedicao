@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
-import { auth } from './firebase'
+import { collection, onSnapshot } from 'firebase/firestore'
+import { auth, db } from './firebase'
 import Login from './Login'
 import Aprovacao from './Aprovacao'
 import Relatorio from './Relatorio'
@@ -12,21 +13,34 @@ import {
   AlertTriangle, CheckCircle, Clock, Package, TrendingUp,
   Calendar, Bell, RefreshCw, User, LogOut, Truck,
   ClipboardList, BarChart2, AlertCircle, FileText, PlusCircle, Users,
-  History, Menu, X
+  History, Menu, X, Zap
 } from 'lucide-react'
 import { useFCM } from './useFCM'
 
 const API_KEY        = import.meta.env.VITE_GOOGLE_API_KEY
 const SPREADSHEET_ID = import.meta.env.VITE_SPREADSHEET_ID
 
-// Hook para detectar tamanho de tela
+// ── PROTEÇÃO 3: Fix de orientação mobile ─────────────────
 function useResponsive() {
-  const [width, setWidth] = useState(window.innerWidth)
+  const getWidth = () => Math.min(window.innerWidth, window.screen.width)
+  const [width, setWidth] = useState(getWidth())
+
   useEffect(() => {
-    const fn = () => setWidth(window.innerWidth)
+    const fn = () => {
+      // Aguarda o browser terminar a rotação antes de medir
+      setTimeout(() => setWidth(getWidth()), 150)
+    }
     window.addEventListener('resize', fn)
-    return () => window.removeEventListener('resize', fn)
+    window.addEventListener('orientationchange', fn)
+    // Garante medição correta ao montar
+    screen.orientation?.addEventListener('change', fn)
+    return () => {
+      window.removeEventListener('resize', fn)
+      window.removeEventListener('orientationchange', fn)
+      screen.orientation?.removeEventListener('change', fn)
+    }
   }, [])
+
   return {
     isMobile:  width < 480,
     isTablet:  width >= 480 && width < 1024,
@@ -91,7 +105,7 @@ const COR_PERFIL = {
 }
 
 const ABAS_POR_PERFIL = {
-  FISCAL:    ['entrada', 'dashboard'],
+  FISCAL:      ['entrada', 'dashboard'],
   COORDENADOR: ['dashboard', 'historico', 'tabela', 'alertas', 'aprovacao', 'conferentes'],
   GERENTE:     ['dashboard', 'historico', 'tabela', 'alertas', 'aprovacao', 'relatorio', 'conferentes'],
   ANALISTA:    ['dashboard', 'historico', 'tabela', 'relatorio'],
@@ -150,25 +164,155 @@ function Badge({ text }) {
   )
 }
 
+// ── PAINEL TEMPO REAL (Firestore) ─────────────────────────
+function PainelTempoReal({ compact }) {
+  const [docasVivas, setDocasVivas] = useState([])
+  const [sessaoAtiva, setSessaoAtiva] = useState(null)
+
+  // Escuta sessões em tempo real
+  useEffect(() => {
+    const unsubS = onSnapshot(collection(db, 'sessoes'), snap => {
+      const lista = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.criadoEm?.toMillis?.() || 0) - (a.criadoEm?.toMillis?.() || 0))
+      setSessaoAtiva(lista[0] || null)
+    })
+    return () => unsubS()
+  }, [])
+
+  // Escuta docas em tempo real
+  useEffect(() => {
+    const unsubD = onSnapshot(collection(db, 'docas'), snap => {
+      const lista = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      setDocasVivas(lista)
+    })
+    return () => unsubD()
+  }, [])
+
+  // Filtra docas da sessão mais recente
+  const docasSessao = sessaoAtiva
+    ? docasVivas.filter(d => d.sessaoId === sessaoAtiva.id || (!d.sessaoId && d.id.startsWith('doca_')))
+    : []
+
+  if (!sessaoAtiva || docasSessao.length === 0) return null
+
+  const total      = docasSessao.length
+  const concluidas = docasSessao.filter(d => d.status === 'CONCLUIDO').length
+  const emAndamento= docasSessao.filter(d => d.status === 'EM_ANDAMENTO').length
+  const aguardando = docasSessao.filter(d => ['AGUARD_COORD','AGUARD_GERENTE','ESCALADO'].includes(d.status)).length
+  const pendentes  = docasSessao.filter(d => d.status === 'PENDENTE').length
+  const pct        = total > 0 ? Math.round(concluidas / total * 100) : 0
+
+  const STATUS_INFO = {
+    PENDENTE:       { label: 'Pendente',           cor: 'var(--text-muted)' },
+    EM_ANDAMENTO:   { label: 'Em andamento',        cor: 'var(--yellow)' },
+    AGUARD_COORD:   { label: 'Aguard. coordenador', cor: 'var(--orange)' },
+    AGUARD_GERENTE: { label: 'Aguard. gerente',     cor: 'var(--red)' },
+    ESCALADO:       { label: 'Escalado → gerente',  cor: 'var(--red)' },
+    CONCLUIDO:      { label: 'Concluído',            cor: 'var(--green)' },
+    REJEITADO:      { label: 'Rejeitado',            cor: 'var(--red)' },
+  }
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      {/* Header do painel */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--green)', animation: 'pulse 2s infinite' }} />
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          Turno em andamento
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+          · {sessaoAtiva.data} · {total} docas
+        </span>
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>
+          upload: {sessaoAtiva.criadoPor?.split('@')[0]}
+        </span>
+      </div>
+
+      {/* Cards do turno */}
+      <div style={{ display: 'grid', gridTemplateColumns: compact ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 10, marginBottom: 12 }}>
+        {[
+          { label: 'Concluídas',   valor: `${concluidas} (${pct}%)`, cor: 'var(--green)' },
+          { label: 'Em andamento', valor: emAndamento,                cor: 'var(--yellow)' },
+          { label: 'Aguardando',   valor: aguardando,                 cor: 'var(--orange)' },
+          { label: 'Pendentes',    valor: pendentes,                  cor: 'var(--text-muted)' },
+        ].map((c, i) => (
+          <div key={i} style={{ background: 'var(--bg-card)', borderRadius: 10, padding: '12px 14px', border: '1px solid var(--border)', borderLeft: `3px solid ${c.cor}` }}>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{c.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: c.cor }}>{c.valor}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Barra de progresso */}
+      <div style={{ background: 'var(--border)', borderRadius: 4, height: 6, marginBottom: 12, overflow: 'hidden' }}>
+        <div style={{ height: '100%', background: 'var(--green)', borderRadius: 4, width: `${pct}%`, transition: 'width 0.5s ease' }} />
+      </div>
+
+      {/* Lista de docas em andamento / aguardando (as que precisam de atenção) */}
+      {(emAndamento > 0 || aguardando > 0) && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>
+            Docas que precisam de atenção
+          </div>
+          {docasSessao
+            .filter(d => ['EM_ANDAMENTO','AGUARD_COORD','AGUARD_GERENTE','ESCALADO'].includes(d.status))
+            .slice(0, compact ? 3 : 6)
+            .map(d => {
+              const info = STATUS_INFO[d.status] || STATUS_INFO.PENDENTE
+              return (
+                <div key={d.id} style={{ background: 'var(--bg-card)', borderRadius: 8, padding: '10px 14px', border: `1px solid ${info.cor}33`, display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ background: 'var(--yellow-dim)', borderRadius: 6, padding: '4px 10px', textAlign: 'center', flexShrink: 0 }}>
+                    <div style={{ fontSize: 9, color: 'var(--yellow)', fontWeight: 700 }}>DOCA</div>
+                    <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--yellow)', lineHeight: 1 }}>{d.doca}</div>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.nomeFilial || d.remessa || '—'}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                      {d.conferente && `👤 ${d.conferente}`}
+                      {d.resultado != null && <span style={{ color: d.resultado >= 5 ? 'var(--red)' : d.resultado >= 3 ? 'var(--yellow)' : 'var(--green)', fontWeight: 700, marginLeft: 8 }}>Resultado: {d.resultado}</span>}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: info.cor, background: info.cor + '15', padding: '3px 10px', borderRadius: 20, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                    {info.label}
+                  </span>
+                </div>
+              )
+            })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function App() {
   const { isMobile, isTablet, isDesktop } = useResponsive()
   const compact = !isDesktop
 
-  const [usuario, setUsuario]                         = useState(null)
-  const [verificando, setVerificando]                 = useState(true)
-  const [dados, setDados]                             = useState([])
-  const [carregando, setCarregando]                   = useState(true)
-  const [erro, setErro]                               = useState(null)
-  const [diaSelecionado, setDiaSelecionado]           = useState('todos')
-  const [abaSelecionada, setAbaSelecionada]           = useState('dashboard')
-  const [ultimaAtualizacao, setUltimaAtualizacao]     = useState(null)
-  const [perfilAprovacao, setPerfilAprovacao]         = useState('COORDENADOR')
-  const [conferentes]                                 = useConferentes()
-  const [mostrarNotif, setMostrarNotif]               = useState(false)
-  const [menuAberto, setMenuAberto]                   = useState(false)
+  const [usuario, setUsuario]                     = useState(null)
+  const [verificando, setVerificando]             = useState(true)
+  const [dados, setDados]                         = useState([])
+  const [carregando, setCarregando]               = useState(true)
+  const [erro, setErro]                           = useState(null)
+  const [diaSelecionado, setDiaSelecionado]       = useState('todos')
+  const [abaSelecionada, setAbaSelecionada]       = useState('dashboard')
+  const [ultimaAtualizacao, setUltimaAtualizacao] = useState(null)
+  const [perfilAprovacao, setPerfilAprovacao]     = useState('COORDENADOR')
+  const [conferentes]                             = useConferentes()
+  const [mostrarNotif, setMostrarNotif]           = useState(false)
+  const [menuAberto, setMenuAberto]               = useState(false)
 
   const { permissao, notificacoes, marcarLida, limparNotificacoes, solicitarPermissao, tokenExpirado } = useFCM(usuario)
   const notifNaoLidas = notificacoes.filter(n => !n.lida).length
+
+  // Escuta evento de abrir aprovação (vindo do SW)
+  useEffect(() => {
+    const handler = e => {
+      setAbaSelecionada('aprovacao')
+    }
+    window.addEventListener('abrirAprovacao', handler)
+    return () => window.removeEventListener('abrirAprovacao', handler)
+  }, [])
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, user => {
@@ -233,14 +377,12 @@ export default function App() {
     setDados(prev => prev.map(d =>
       d.doca === row.doca && d.data === row.data ? { ...d, aprovado: true } : d
     ))
-    alert(`✅ Doca ${row.doca} aprovada!${comentario ? '\n' + comentario : ''}`)
   }
 
   function handleRejeitar(row, comentario) {
     setDados(prev => prev.map(d =>
       d.doca === row.doca && d.data === row.data ? { ...d, rejeitado: true } : d
     ))
-    alert(`❌ Doca ${row.doca} rejeitada!${comentario ? '\n' + comentario : ''}`)
   }
 
   function navegar(aba) {
@@ -267,12 +409,10 @@ export default function App() {
 
       {/* HEADER */}
       <div style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)', padding: `0 ${compact ? '16px' : '32px'}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 56 }}>
-        {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ background: 'var(--yellow)', borderRadius: 6, padding: '3px 8px' }}>
             <span style={{ fontSize: isMobile ? 10 : 12, fontWeight: 900, color: '#1a1a1a' }}>
-              {isMobile ? 'GPP' : 'grupo'}
-              {!isMobile && <strong>pernambucanas</strong>}
+              {isMobile ? 'GPP' : 'grupo'}{!isMobile && <strong>pernambucanas</strong>}
             </span>
           </div>
           {!isMobile && (
@@ -286,27 +426,29 @@ export default function App() {
           )}
         </div>
 
-        {/* Direita do header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* Atualizado — só desktop */}
           {isDesktop && ultimaAtualizacao && (
             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Atualizado {ultimaAtualizacao}</span>
           )}
 
-          {/* Botão atualizar */}
           <button onClick={carregarDados} disabled={carregando} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
             <RefreshCw size={13} style={{ animation: carregando ? 'spin 1s linear infinite' : 'none' }} />
             {!isMobile && 'Atualizar'}
           </button>
 
-          {/* Ativar notificações */}
           {podeNotif && permissao !== 'granted' && (
             <button onClick={solicitarPermissao} style={{ background: 'var(--yellow-dim)', border: '1px solid var(--yellow)', borderRadius: 8, padding: '5px 8px', cursor: 'pointer', color: 'var(--yellow)', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
               <Bell size={12} />{!isMobile && 'Ativar notif.'}
             </button>
           )}
 
-          {/* Sino */}
+          {/* ALERTA TOKEN EXPIRADO */}
+          {podeNotif && tokenExpirado && permissao === 'granted' && (
+            <button onClick={solicitarPermissao} style={{ background: 'var(--red-dim)', border: '1px solid var(--red)', borderRadius: 8, padding: '5px 8px', cursor: 'pointer', color: 'var(--red)', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Zap size={12} />{!isMobile && 'Renovar notif.'}
+            </button>
+          )}
+
           <div style={{ position: 'relative' }}>
             <button onClick={() => setMostrarNotif(v => !v)} style={{
               display: 'flex', alignItems: 'center', gap: 5,
@@ -340,7 +482,6 @@ export default function App() {
             )}
           </div>
 
-          {/* Perfil + logout — desktop */}
           {!isMobile && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, borderLeft: '1px solid var(--border)', paddingLeft: 10 }}>
               <div style={{ textAlign: 'right' }}>
@@ -353,7 +494,6 @@ export default function App() {
             </div>
           )}
 
-          {/* Menu hamburguer — mobile */}
           {isMobile && (
             <button onClick={() => setMenuAberto(v => !v)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 8px', cursor: 'pointer', color: 'var(--text-muted)' }}>
               {menuAberto ? <X size={16} /> : <Menu size={16} />}
@@ -362,10 +502,9 @@ export default function App() {
         </div>
       </div>
 
-      {/* MENU MOBILE DROPDOWN */}
+      {/* MENU MOBILE */}
       {isMobile && menuAberto && (
         <div style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border)', padding: '8px 0', zIndex: 50 }}>
-          {/* Info do usuário */}
           <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 600 }}>{usuario.email.split('@')[0]}</div>
@@ -375,7 +514,6 @@ export default function App() {
               <LogOut size={13} /> Sair
             </button>
           </div>
-          {/* Abas */}
           {abasPerfil.map(aba => (
             <button key={aba} onClick={() => navegar(aba)} style={{
               width: '100%', padding: '12px 16px', background: abaSelecionada === aba ? 'var(--yellow-dim)' : 'none',
@@ -391,7 +529,7 @@ export default function App() {
         </div>
       )}
 
-      {/* NAVEGAÇÃO — tablet/desktop */}
+      {/* NAVEGAÇÃO desktop/tablet */}
       {!isMobile && (
         <div style={{ background: 'var(--bg-secondary)', padding: `0 ${compact ? '16px' : '32px'}`, display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', overflowX: 'auto' }}>
           {abasPerfil.map(aba => (
@@ -425,40 +563,43 @@ export default function App() {
         )}
 
         <div className="fade-in">
-          {abaSelecionada === 'entrada' && <EntradaDados usuario={usuario} conferentes={conferentes} onDadosSalvos={carregarDados} tokenFCMExpirado={tokenExpirado} onRenovarToken={solicitarPermissao} />}
+          {abaSelecionada === 'entrada'     && <EntradaDados usuario={usuario} conferentes={conferentes} onDadosSalvos={carregarDados} tokenFCMExpirado={tokenExpirado} onRenovarToken={solicitarPermissao} />}
           {abaSelecionada === 'conferentes' && <Conferentes />}
           {abaSelecionada === 'historico'   && <DashboardHistorico dadosRecentes={dados} />}
 
           {!semFiltro.includes(abaSelecionada) && !carregando && !erro && (
             <>
-              {/* FILTRO DE DIA */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-                <Calendar size={13} color="var(--text-muted)" />
-                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Período:</span>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {dias.map(dia => (
-                    <button key={dia} onClick={() => setDiaSelecionado(dia)} style={{
-                      padding: '4px 12px', borderRadius: 20, border: '1px solid',
-                      borderColor: diaSelecionado === dia ? 'var(--yellow)' : 'var(--border)',
-                      cursor: 'pointer', fontSize: 12,
-                      background: diaSelecionado === dia ? 'var(--yellow-dim)' : 'transparent',
-                      color: diaSelecionado === dia ? 'var(--yellow)' : 'var(--text-muted)',
-                      fontWeight: diaSelecionado === dia ? 700 : 400,
-                    }}>
-                      {dia === 'todos' ? 'Todos' : dia}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               {/* DASHBOARD */}
               {abaSelecionada === 'dashboard' && (
                 <>
+                  {/* ── PAINEL TEMPO REAL (Firestore) ── */}
+                  <PainelTempoReal compact={compact} />
+
+                  {/* ── FILTRO DE DIA (Sheets) ── */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                    <Calendar size={13} color="var(--text-muted)" />
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Histórico (Sheets):</span>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {dias.map(dia => (
+                        <button key={dia} onClick={() => setDiaSelecionado(dia)} style={{
+                          padding: '4px 12px', borderRadius: 20, border: '1px solid',
+                          borderColor: diaSelecionado === dia ? 'var(--yellow)' : 'var(--border)',
+                          cursor: 'pointer', fontSize: 12,
+                          background: diaSelecionado === dia ? 'var(--yellow-dim)' : 'transparent',
+                          color: diaSelecionado === dia ? 'var(--yellow)' : 'var(--text-muted)',
+                          fontWeight: diaSelecionado === dia ? 700 : 400,
+                        }}>
+                          {dia === 'todos' ? 'Todos' : dia}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : isTablet ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: compact ? 10 : 16, marginBottom: compact ? 16 : 24 }}>
-                    <MetricCard label="Total Docas"    valor={totalDocas}     icon={<Package size={18} />}       cor="#3b82f6" sub={`${dias.filter(d => d !== 'todos').length} dia(s)`} compact={compact} />
-                    <MetricCard label="Liberadas"      valor={totalLiberadas} icon={<CheckCircle size={18} />}   cor="#22c55e" sub={`${pctLiberadas}%`} compact={compact} />
-                    <MetricCard label="Alertas"        valor={totalAlertas}   icon={<AlertTriangle size={18} />} cor="var(--yellow)" sub="Aguardando" compact={compact} />
-                    <MetricCard label="Críticos"       valor={totalCriticos}  icon={<TrendingUp size={18} />}    cor="#ef4444" sub="≥ 5 pend." compact={compact} />
+                    <MetricCard label="Total Docas"  valor={totalDocas}     icon={<Package size={18} />}       cor="#3b82f6" sub={`${dias.filter(d => d !== 'todos').length} dia(s)`} compact={compact} />
+                    <MetricCard label="Liberadas"    valor={totalLiberadas} icon={<CheckCircle size={18} />}   cor="#22c55e" sub={`${pctLiberadas}%`} compact={compact} />
+                    <MetricCard label="Alertas"      valor={totalAlertas}   icon={<AlertTriangle size={18} />} cor="var(--yellow)" sub="Aguardando" compact={compact} />
+                    <MetricCard label="Críticos"     valor={totalCriticos}  icon={<TrendingUp size={18} />}    cor="#ef4444" sub="≥ 5 pend." compact={compact} />
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: isDesktop ? '2fr 1fr' : '1fr', gap: compact ? 12 : 16 }}>
@@ -498,6 +639,28 @@ export default function App() {
                     </div>
                   </div>
                 </>
+              )}
+
+              {/* FILTRO DE DIA — outras abas */}
+              {abaSelecionada !== 'dashboard' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+                  <Calendar size={13} color="var(--text-muted)" />
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Período:</span>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {dias.map(dia => (
+                      <button key={dia} onClick={() => setDiaSelecionado(dia)} style={{
+                        padding: '4px 12px', borderRadius: 20, border: '1px solid',
+                        borderColor: diaSelecionado === dia ? 'var(--yellow)' : 'var(--border)',
+                        cursor: 'pointer', fontSize: 12,
+                        background: diaSelecionado === dia ? 'var(--yellow-dim)' : 'transparent',
+                        color: diaSelecionado === dia ? 'var(--yellow)' : 'var(--text-muted)',
+                        fontWeight: diaSelecionado === dia ? 700 : 400,
+                      }}>
+                        {dia === 'todos' ? 'Todos' : dia}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
 
               {/* TABELA */}
@@ -603,7 +766,8 @@ export default function App() {
       </div>
 
       <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes spin  { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
         * { -webkit-tap-highlight-color: transparent; }
         input, select, textarea { font-size: 16px !important; }
       `}</style>
