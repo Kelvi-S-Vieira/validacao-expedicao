@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
 import { getMessaging, getToken, onMessage } from 'firebase/messaging'
-import { doc, setDoc, deleteDoc, getDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore'
 import { db, app } from './firebase'
 
 const VAPID_KEY     = import.meta.env.VITE_FIREBASE_VAPID_KEY
 const TOKEN_MAX_AGE = 30 * 24 * 60 * 60 * 1000 // 30 dias
 
-// ── Gera ou recupera ID único do dispositivo ──────────────
 function getDeviceId() {
   let id = localStorage.getItem('gpp_device_id')
   if (!id) {
@@ -16,7 +15,6 @@ function getDeviceId() {
   return id
 }
 
-// ── Nome amigável do dispositivo ──────────────────────────
 function getDeviceName() {
   const ua = navigator.userAgent
   if (/iPhone/i.test(ua))  return 'iPhone'
@@ -43,7 +41,7 @@ export function useFCM(usuario) {
     }
   }, [usuario])
 
-  // ── Escuta mensagens do Service Worker (foreground) ──────
+  // Escuta mensagens do Service Worker (foreground)
   useEffect(() => {
     if (!navigator.serviceWorker) return
     const handler = event => {
@@ -70,7 +68,6 @@ export function useFCM(usuario) {
     }, ...prev.slice(0, 9)])
   }
 
-  // ── Verifica expiração do token deste dispositivo ────────
   async function verificarEInicializar() {
     try {
       const deviceId  = getDeviceId()
@@ -109,13 +106,12 @@ export function useFCM(usuario) {
         setFcmToken(token)
         setTokenExpirado(false)
         await salvarTokenDispositivo(token, usuario)
-        console.log('[FCM] Token registrado para dispositivo:', getDeviceId())
+        console.log('[FCM] Token registrado:', getDeviceId())
       }
 
       onMessage(messaging, payload => {
         const { title, body } = payload.notification || {}
         const data = payload.data || {}
-        console.log('[FCM] Mensagem foreground:', title)
         adicionarNotificacao(
           title || 'Validação de Expedição',
           body  || 'Nova pendência',
@@ -143,23 +139,28 @@ export function useFCM(usuario) {
   }
 }
 
-// ── Salva token na subcoleção devices/{deviceId} ──────────
+// ── Salva token em dois lugares ───────────────────────────
+// 1. Subcoleção devices/{deviceId} — suporte multi-device
+// 2. Documento raiz fcm_tokens/{uid} — lido pelo FCMPush.gs
 async function salvarTokenDispositivo(token, usuario) {
   try {
     const deviceId   = getDeviceId()
     const deviceName = getDeviceName()
-    const tokenRef   = doc(db, 'fcm_tokens', usuario.uid, 'devices', deviceId)
 
-    await setDoc(tokenRef, {
-      token,
-      deviceId,
-      deviceName,
-      email:     usuario.email,
-      perfil:    usuario.perfil,
-      updatedAt: serverTimestamp(),
-    })
+    // Subcoleção (multi-device)
+    await setDoc(
+      doc(db, 'fcm_tokens', usuario.uid, 'devices', deviceId),
+      { token, deviceId, deviceName, email: usuario.email, perfil: usuario.perfil, updatedAt: serverTimestamp() }
+    )
 
-    console.log(`[FCM] Token salvo: ${deviceName} (${deviceId})`)
+    // Documento raiz — FCMPush.gs busca aqui
+    await setDoc(
+      doc(db, 'fcm_tokens', usuario.uid),
+      { token, email: usuario.email, perfil: usuario.perfil, updatedAt: serverTimestamp() },
+      { merge: true }
+    )
+
+    console.log(`[FCM] Token salvo: ${deviceName} (${deviceId}) | perfil: ${usuario.perfil}`)
   } catch (err) {
     console.error('[FCM] Erro ao salvar token:', err)
   }
