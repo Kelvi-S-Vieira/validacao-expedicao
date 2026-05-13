@@ -13,9 +13,10 @@ const COL = {
   DATA:        20,
   HORARIO:     24,
   GPP:         23,
-  SEQ:         30,
-  LOJA:        31,
-  NOME_FILIAL: 32,
+  SEQ:         29,
+  LOJA:        30,
+  NOME_FILIAL: 31,
+  UF:          32,
   // CABIDE CX é buscado pelo nome do cabeçalho — não por índice fixo
 }
 
