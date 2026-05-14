@@ -25,6 +25,22 @@ function getDeviceName() {
   return 'Dispositivo'
 }
 
+// Verifica se o navegador atual é Chrome ou baseado em Chromium
+// Samsung Internet, Opera Mini e outros não são suportados para push
+function isChromium() {
+  const ua = navigator.userAgent
+  // Samsung Internet se identifica como "SamsungBrowser"
+  if (/SamsungBrowser/i.test(ua)) return false
+  // Opera
+  if (/OPR\/|Opera/i.test(ua)) return false
+  // Firefox
+  if (/Firefox/i.test(ua)) return false
+  // Safari puro (não Chrome)
+  if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) return false
+  // Chrome, Edge (Chromium), Chrome Android
+  return /Chrome/i.test(ua)
+}
+
 export function useFCM(usuario) {
   const [fcmToken, setFcmToken]           = useState(null)
   const [permissao, setPermissao]         = useState('default')
@@ -89,6 +105,12 @@ export function useFCM(usuario) {
 
   async function solicitarPermissao() {
     try {
+      // Só registra token em Chrome/Chromium — outros browsers abrem sem suporte ao PWA
+      if (!isChromium()) {
+        console.log('[FCM] Navegador não suportado para push — use o Chrome.')
+        return
+      }
+
       const perm = await Notification.requestPermission()
       setPermissao(perm)
       if (perm !== 'granted') return
