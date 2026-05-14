@@ -932,7 +932,22 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
                     {d.resultado!=null && <span style={{ fontSize:11, fontWeight:700, color: d.resultado>=5?'var(--red)':d.resultado>=3?'var(--yellow)':'var(--green)' }}>Resultado: {d.resultado}</span>}
                   </div>
                 </div>
-                {d.status==='AGUARD_COORD' && d.tsAlerta && <Countdown tsAlerta={d.tsAlerta} onExpirar={() => atualizarDoca(d.doca, { status:'ESCALADO', tsEscalada:new Date() })} />}
+                {d.status==='AGUARD_COORD' && d.tsAlerta && <Countdown tsAlerta={d.tsAlerta} onExpirar={() => {
+                  atualizarDoca(d.doca, { status:'ESCALADO', tsEscalada:new Date() })
+                  // Dispara push para o GERENTE ao escalar
+                  fetch(import.meta.env.VITE_APPS_SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: JSON.stringify({
+                      acao: 'push',
+                      doca: d.doca,
+                      resultado: d.resultado ?? 0,
+                      logResultado: 0,
+                      tipoPerfil: 'GERENTE',
+                      escalada: true,
+                    })
+                  }).catch(err => console.warn('[Push escalada] Erro:', err))
+                }} />}
                 <span style={{ padding:'4px 10px', borderRadius:20, fontSize:11, fontWeight:700, background:inf.bg, color:inf.color, flexShrink:0, whiteSpace:'nowrap' }}>{inf.label}</span>
                 {d.status==='PENDENTE'      && valLocal.conferente && <button onClick={() => handleIniciar(d)} style={{ background:'var(--yellow)', border:'none', borderRadius:8, padding:'8px 14px', cursor:'pointer', color:'#1a1a1a', fontWeight:700, fontSize:12, flexShrink:0 }}><Play size={12} style={{ display:'inline', marginRight:4 }} />Iniciar</button>}
                 {d.status==='EM_ANDAMENTO'  && minha  && <button onClick={() => handleContinuar(d)} style={{ background:'var(--yellow-dim)', border:'1px solid var(--yellow)', borderRadius:8, padding:'8px 14px', cursor:'pointer', color:'var(--yellow)', fontWeight:700, fontSize:12, flexShrink:0 }}>Continuar →</button>}
