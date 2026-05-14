@@ -288,7 +288,7 @@ export default function App() {
   const [diaSelecionado, setDiaSelecionado]       = useState('todos')
   const [abaSelecionada, setAbaSelecionada]       = useState('dashboard')
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState(null)
-  const [perfilAprovacao, setPerfilAprovacao]     = useState('COORDENADOR')
+  const [perfilAprovacao, setPerfilAprovacao]     = useState(null)
   const [conferentes]                             = useConferentes()
   const [mostrarNotif, setMostrarNotif]           = useState(false)
   const [menuAberto, setMenuAberto]               = useState(false)
@@ -297,10 +297,19 @@ export default function App() {
   const notifNaoLidas = notificacoes.filter(n => !n.lida).length
 
   useEffect(() => {
-    const handler = e => setAbaSelecionada('aprovacao')
+    const handler = e => {
+      setAbaSelecionada('aprovacao')
+      // Define perfil automaticamente ao abrir via push notification
+      setPerfilAprovacao(prev => {
+        if (prev) return prev
+        if (['COORDENADOR','GERENTE'].includes(usuario?.perfil)) return usuario.perfil
+        if (usuario?.perfil === 'ADMIN') return 'GERENTE'
+        return 'COORDENADOR'
+      })
+    }
     window.addEventListener('abrirAprovacao', handler)
     return () => window.removeEventListener('abrirAprovacao', handler)
-  }, [])
+  }, [usuario])
 
   // ── Auth state — busca perfil no Firestore ────────────
   useEffect(() => {
@@ -366,7 +375,17 @@ export default function App() {
   function handleAprovar(row)  { setDados(prev => prev.map(d => d.doca === row.doca && d.data === row.data ? { ...d, aprovado: true }  : d)) }
   function handleRejeitar(row) { setDados(prev => prev.map(d => d.doca === row.doca && d.data === row.data ? { ...d, rejeitado: true } : d)) }
 
-  function navegar(aba) { setAbaSelecionada(aba); setMenuAberto(false) }
+  function navegar(aba) {
+    setAbaSelecionada(aba)
+    setMenuAberto(false)
+    // Ao entrar na aprovação, usa o perfil do usuário logado como padrão
+    if (aba === 'aprovacao' && !perfilAprovacao) {
+      const p = ['COORDENADOR','GERENTE','ADMIN'].includes(usuario?.perfil)
+        ? (usuario.perfil === 'ADMIN' ? 'GERENTE' : usuario.perfil)
+        : 'COORDENADOR'
+      setPerfilAprovacao(p)
+    }
+  }
 
   const abasPerfil = usuario ? (ABAS_POR_PERFIL[usuario.perfil] || ['dashboard']) : ['dashboard']
   const semFiltro  = ['entrada', 'conferentes', 'historico']
@@ -768,28 +787,39 @@ export default function App() {
                 </div>
               )}
 
-              {abaSelecionada === 'aprovacao' && (
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
-                    <User size={13} color="var(--text-muted)" />
-                    <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Visualizando como:</span>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      {['COORDENADOR', 'GERENTE'].map(p => (
-                        <button key={p} onClick={() => setPerfilAprovacao(p)} style={{
-                          padding: '6px 14px', borderRadius: 20,
-                          border: `1px solid ${perfilAprovacao === p ? (p === 'GERENTE' ? 'var(--red)' : 'var(--orange)') : 'var(--border)'}`,
-                          cursor: 'pointer', fontSize: 12, fontWeight: 700,
-                          background: perfilAprovacao === p ? (p === 'GERENTE' ? 'var(--red-dim)' : 'var(--orange-dim)') : 'transparent',
-                          color: perfilAprovacao === p ? (p === 'GERENTE' ? 'var(--red)' : 'var(--orange)') : 'var(--text-muted)',
-                        }}>
-                          {p}
-                        </button>
-                      ))}
-                    </div>
+              {abaSelecionada === 'aprovacao' && (() => {
+                // Perfil efetivo para aprovação
+                const perfilEfetivo = perfilAprovacao ||
+                  (['COORDENADOR','GERENTE'].includes(usuario?.perfil)
+                    ? usuario.perfil
+                    : usuario?.perfil === 'ADMIN' ? 'GERENTE' : 'COORDENADOR')
+
+                return (
+                  <div>
+                    {/* Seletor só aparece para ADMIN — coord e gerente veem o próprio perfil direto */}
+                    {(isAdmin || !['COORDENADOR','GERENTE'].includes(usuario?.perfil)) && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+                        <User size={13} color="var(--text-muted)" />
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Visualizando como:</span>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          {['COORDENADOR', 'GERENTE'].map(p => (
+                            <button key={p} onClick={() => setPerfilAprovacao(p)} style={{
+                              padding: '6px 14px', borderRadius: 20,
+                              border: `1px solid ${perfilEfetivo === p ? (p === 'GERENTE' ? 'var(--red)' : 'var(--orange)') : 'var(--border)'}`,
+                              cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                              background: perfilEfetivo === p ? (p === 'GERENTE' ? 'var(--red-dim)' : 'var(--orange-dim)') : 'transparent',
+                              color: perfilEfetivo === p ? (p === 'GERENTE' ? 'var(--red)' : 'var(--orange)') : 'var(--text-muted)',
+                            }}>
+                              {p}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <Aprovacao usuario={usuario} dados={dadosFiltrados} perfil={perfilEfetivo} onAprovar={handleAprovar} onRejeitar={handleRejeitar} />
                   </div>
-                  <Aprovacao usuario={usuario} dados={dadosFiltrados} perfil={perfilAprovacao} onAprovar={handleAprovar} onRejeitar={handleRejeitar} />
-                </div>
-              )}
+                )
+              })()}
 
               {abaSelecionada === 'relatorio' && <Relatorio dados={dadosFiltrados} />}
             </>
