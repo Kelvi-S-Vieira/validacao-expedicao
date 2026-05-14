@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { onAuthStateChanged, signOut } from 'firebase/auth'
-import { collection, onSnapshot } from 'firebase/firestore'
+import { onAuthStateChanged, signOut, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth'
+import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore'
 import { auth, db } from './firebase'
 import Login from './Login'
 import Aprovacao from './Aprovacao'
@@ -13,14 +13,13 @@ import {
   AlertTriangle, CheckCircle, Clock, Package, TrendingUp,
   Calendar, Bell, RefreshCw, User, LogOut, Truck,
   ClipboardList, BarChart2, AlertCircle, FileText, PlusCircle, Users,
-  History, Menu, X, Zap
+  History, Menu, X, Zap, ShieldAlert, Key, Eye, EyeOff
 } from 'lucide-react'
 import { useFCM } from './useFCM'
 
 const API_KEY        = import.meta.env.VITE_GOOGLE_API_KEY
 const SPREADSHEET_ID = import.meta.env.VITE_SPREADSHEET_ID
 
-// ── PROTEÇÃO 3: Fix de orientação mobile ─────────────────
 function useResponsive() {
   const measure = () => ({
     isMobile:  window.innerWidth < 480,
@@ -28,28 +27,19 @@ function useResponsive() {
     isDesktop: window.innerWidth >= 1024,
     width:     window.innerWidth,
   })
-
   const [dims, setDims] = useState(measure)
-
   useEffect(() => {
     let raf = null
-
     const update = () => {
       if (raf) cancelAnimationFrame(raf)
-      // Usa requestAnimationFrame para garantir que o DOM já recalculou
       raf = requestAnimationFrame(() => {
-        // Duplo rAF para dispositivos que ainda não terminaram de rotacionar
         raf = requestAnimationFrame(() => setDims(measure()))
       })
     }
-
-    // ResizeObserver é mais confiável que resize + orientationchange
     const ro = new ResizeObserver(update)
     ro.observe(document.documentElement)
-
     window.addEventListener('orientationchange', update)
     window.addEventListener('resize', update)
-
     return () => {
       ro.disconnect()
       window.removeEventListener('orientationchange', update)
@@ -57,7 +47,6 @@ function useResponsive() {
       if (raf) cancelAnimationFrame(raf)
     }
   }, [])
-
   return dims
 }
 
@@ -105,7 +94,17 @@ function normalizarLinha(linha, dataAba) {
   }
 }
 
-function detectarPerfil(email) {
+// ── Busca perfil no Firestore (suporta ADMIN e qualquer e-mail) ──
+async function buscarPerfil(uid) {
+  try {
+    const snap = await getDoc(doc(db, 'usuarios', uid))
+    if (snap.exists()) return snap.data().perfil || null
+  } catch {}
+  return null
+}
+
+// ── Fallback por e-mail ──────────────────────────────────
+function detectarPerfilPorEmail(email) {
   if (email.includes('gerente'))     return 'GERENTE'
   if (email.includes('coordenador')) return 'COORDENADOR'
   if (email.includes('analista'))    return 'ANALISTA'
@@ -113,7 +112,8 @@ function detectarPerfil(email) {
 }
 
 const COR_PERFIL = {
-  GERENTE: '#ef4444', COORDENADOR: '#f97316', ANALISTA: '#22c55e', FISCAL: '#3b82f6'
+  GERENTE: '#ef4444', COORDENADOR: '#f97316', ANALISTA: '#22c55e',
+  FISCAL: '#3b82f6', ADMIN: '#8b5cf6'
 }
 
 const ABAS_POR_PERFIL = {
@@ -121,6 +121,7 @@ const ABAS_POR_PERFIL = {
   COORDENADOR: ['dashboard', 'historico', 'tabela', 'alertas', 'aprovacao', 'conferentes'],
   GERENTE:     ['dashboard', 'historico', 'tabela', 'alertas', 'aprovacao', 'relatorio', 'conferentes'],
   ANALISTA:    ['dashboard', 'historico', 'tabela', 'relatorio'],
+  ADMIN:       ['entrada', 'dashboard', 'historico', 'tabela', 'alertas', 'aprovacao', 'relatorio', 'conferentes'],
 }
 
 const LABELS = {
@@ -176,12 +177,10 @@ function Badge({ text }) {
   )
 }
 
-// ── PAINEL TEMPO REAL (Firestore) ─────────────────────────
 function PainelTempoReal({ compact }) {
   const [docasVivas, setDocasVivas] = useState([])
   const [sessaoAtiva, setSessaoAtiva] = useState(null)
 
-  // Escuta sessões em tempo real
   useEffect(() => {
     const unsubS = onSnapshot(collection(db, 'sessoes'), snap => {
       const lista = snap.docs
@@ -192,28 +191,25 @@ function PainelTempoReal({ compact }) {
     return () => unsubS()
   }, [])
 
-  // Escuta docas em tempo real
   useEffect(() => {
     const unsubD = onSnapshot(collection(db, 'docas'), snap => {
-      const lista = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      setDocasVivas(lista)
+      setDocasVivas(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     })
     return () => unsubD()
   }, [])
 
-  // Filtra docas da sessão mais recente
   const docasSessao = sessaoAtiva
     ? docasVivas.filter(d => d.sessaoId === sessaoAtiva.id || (!d.sessaoId && d.id.startsWith('doca_')))
     : []
 
   if (!sessaoAtiva || docasSessao.length === 0) return null
 
-  const total      = docasSessao.length
-  const concluidas = docasSessao.filter(d => d.status === 'CONCLUIDO').length
-  const emAndamento= docasSessao.filter(d => d.status === 'EM_ANDAMENTO').length
-  const aguardando = docasSessao.filter(d => ['AGUARD_COORD','AGUARD_GERENTE','ESCALADO'].includes(d.status)).length
-  const pendentes  = docasSessao.filter(d => d.status === 'PENDENTE').length
-  const pct        = total > 0 ? Math.round(concluidas / total * 100) : 0
+  const total       = docasSessao.length
+  const concluidas  = docasSessao.filter(d => d.status === 'CONCLUIDO').length
+  const emAndamento = docasSessao.filter(d => d.status === 'EM_ANDAMENTO').length
+  const aguardando  = docasSessao.filter(d => ['AGUARD_COORD','AGUARD_GERENTE','ESCALADO'].includes(d.status)).length
+  const pendentes   = docasSessao.filter(d => d.status === 'PENDENTE').length
+  const pct         = total > 0 ? Math.round(concluidas / total * 100) : 0
 
   const STATUS_INFO = {
     PENDENTE:       { label: 'Pendente',           cor: 'var(--text-muted)' },
@@ -227,21 +223,12 @@ function PainelTempoReal({ compact }) {
 
   return (
     <div style={{ marginBottom: 20 }}>
-      {/* Header do painel */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
         <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--green)', animation: 'pulse 2s infinite' }} />
-        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-          Turno em andamento
-        </span>
-        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-          · {sessaoAtiva.data} · {total} docas
-        </span>
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>
-          upload: {sessaoAtiva.criadoPor?.split('@')[0]}
-        </span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Turno em andamento</span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>· {sessaoAtiva.data} · {total} docas</span>
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>upload: {sessaoAtiva.criadoPor?.split('@')[0]}</span>
       </div>
-
-      {/* Cards do turno */}
       <div style={{ display: 'grid', gridTemplateColumns: compact ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 10, marginBottom: 12 }}>
         {[
           { label: 'Concluídas',   valor: `${concluidas} (${pct}%)`, cor: 'var(--green)' },
@@ -255,18 +242,12 @@ function PainelTempoReal({ compact }) {
           </div>
         ))}
       </div>
-
-      {/* Barra de progresso */}
       <div style={{ background: 'var(--border)', borderRadius: 4, height: 6, marginBottom: 12, overflow: 'hidden' }}>
         <div style={{ height: '100%', background: 'var(--green)', borderRadius: 4, width: `${pct}%`, transition: 'width 0.5s ease' }} />
       </div>
-
-      {/* Lista de docas em andamento / aguardando (as que precisam de atenção) */}
       {(emAndamento > 0 || aguardando > 0) && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>
-            Docas que precisam de atenção
-          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Docas que precisam de atenção</div>
           {docasSessao
             .filter(d => ['EM_ANDAMENTO','AGUARD_COORD','AGUARD_GERENTE','ESCALADO'].includes(d.status))
             .slice(0, compact ? 3 : 6)
@@ -285,9 +266,7 @@ function PainelTempoReal({ compact }) {
                       {d.resultado != null && <span style={{ color: d.resultado >= 5 ? 'var(--red)' : d.resultado >= 3 ? 'var(--yellow)' : 'var(--green)', fontWeight: 700, marginLeft: 8 }}>Resultado: {d.resultado}</span>}
                     </div>
                   </div>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: info.cor, background: info.cor + '15', padding: '3px 10px', borderRadius: 20, flexShrink: 0, whiteSpace: 'nowrap' }}>
-                    {info.label}
-                  </span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: info.cor, background: info.cor + '15', padding: '3px 10px', borderRadius: 20, flexShrink: 0, whiteSpace: 'nowrap' }}>{info.label}</span>
                 </div>
               )
             })}
@@ -317,19 +296,18 @@ export default function App() {
   const { permissao, notificacoes, marcarLida, limparNotificacoes, solicitarPermissao, tokenExpirado } = useFCM(usuario)
   const notifNaoLidas = notificacoes.filter(n => !n.lida).length
 
-  // Escuta evento de abrir aprovação (vindo do SW)
   useEffect(() => {
-    const handler = e => {
-      setAbaSelecionada('aprovacao')
-    }
+    const handler = e => setAbaSelecionada('aprovacao')
     window.addEventListener('abrirAprovacao', handler)
     return () => window.removeEventListener('abrirAprovacao', handler)
   }, [])
 
+  // ── Auth state — busca perfil no Firestore ────────────
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, user => {
+    const unsub = onAuthStateChanged(auth, async user => {
       if (user) {
-        const perfil = detectarPerfil(user.email)
+        const perfilFirestore = await buscarPerfil(user.uid)
+        const perfil = perfilFirestore || detectarPerfilPorEmail(user.email)
         setUsuario({ email: user.email, perfil, uid: user.uid })
         setAbaSelecionada(ABAS_POR_PERFIL[perfil]?.[0] || 'dashboard')
       } else {
@@ -381,31 +359,66 @@ export default function App() {
   }))
 
   const dadosPizza = [
-    { name: 'Liberadas', value: totalLiberadas, cor: '#22c55e' },
+    { name: 'Liberadas', value: totalLiberadas,              cor: '#22c55e' },
     { name: 'Pendentes', value: totalDocas - totalLiberadas, cor: '#ef4444' },
   ]
 
-  function handleAprovar(row, comentario) {
-    setDados(prev => prev.map(d =>
-      d.doca === row.doca && d.data === row.data ? { ...d, aprovado: true } : d
-    ))
-  }
+  function handleAprovar(row)  { setDados(prev => prev.map(d => d.doca === row.doca && d.data === row.data ? { ...d, aprovado: true }  : d)) }
+  function handleRejeitar(row) { setDados(prev => prev.map(d => d.doca === row.doca && d.data === row.data ? { ...d, rejeitado: true } : d)) }
 
-  function handleRejeitar(row, comentario) {
-    setDados(prev => prev.map(d =>
-      d.doca === row.doca && d.data === row.data ? { ...d, rejeitado: true } : d
-    ))
-  }
-
-  function navegar(aba) {
-    setAbaSelecionada(aba)
-    setMenuAberto(false)
-  }
+  function navegar(aba) { setAbaSelecionada(aba); setMenuAberto(false) }
 
   const abasPerfil = usuario ? (ABAS_POR_PERFIL[usuario.perfil] || ['dashboard']) : ['dashboard']
   const semFiltro  = ['entrada', 'conferentes', 'historico']
-  const podeNotif  = ['COORDENADOR', 'GERENTE'].includes(usuario?.perfil)
+  const podeNotif  = ['COORDENADOR', 'GERENTE', 'ADMIN'].includes(usuario?.perfil)
+  const isAdmin    = usuario?.perfil === 'ADMIN'
   const pad        = compact ? '16px' : '24px 32px'
+
+  // ── Estados do modal de alterar senha ────────────────
+  const [modalSenha, setModalSenha]               = useState(false)
+  const [senhaAtual, setSenhaAtual]               = useState('')
+  const [senhaNova, setSenhaNova]                 = useState('')
+  const [senhaNovaConf, setSenhaNovaConf]         = useState('')
+  const [erroSenha, setErroSenha]                 = useState('')
+  const [sucSenha, setSucSenha]                   = useState(false)
+  const [loadingSenha, setLoadingSenha]           = useState(false)
+  const [mostrarSenhaAtual, setMostrarSenhaAtual] = useState(false)
+  const [mostrarSenhaNova, setMostrarSenhaNova]   = useState(false)
+
+  function fecharModalSenha() {
+    setModalSenha(false); setErroSenha(''); setSucSenha(false)
+    setSenhaAtual(''); setSenhaNova(''); setSenhaNovaConf('')
+    setMostrarSenhaAtual(false); setMostrarSenhaNova(false)
+  }
+
+  async function handleAlterarSenha(e) {
+    e.preventDefault()
+    setErroSenha(''); setSucSenha(false)
+    if (senhaNova.length < 6) { setErroSenha('A nova senha deve ter pelo menos 6 caracteres.'); return }
+    if (senhaNova !== senhaNovaConf) { setErroSenha('As senhas não coincidem.'); return }
+    setLoadingSenha(true)
+    try {
+      const { currentUser } = auth
+      const credential = EmailAuthProvider.credential(currentUser.email, senhaAtual)
+      await reauthenticateWithCredential(currentUser, credential)
+      await updatePassword(currentUser, senhaNova)
+      setSucSenha(true)
+      setSenhaAtual(''); setSenhaNova(''); setSenhaNovaConf('')
+    } catch (err) {
+      if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        setErroSenha('Senha atual incorreta.')
+      } else {
+        setErroSenha('Erro ao alterar senha. Tente novamente.')
+      }
+    }
+    setLoadingSenha(false)
+  }
+
+  const INPUT_SENHA = {
+    width: '100%', padding: '11px 42px 11px 14px', borderRadius: 8,
+    border: '1px solid var(--border)', background: 'var(--bg-primary)',
+    color: 'var(--text-primary)', fontSize: 15, outline: 'none', boxSizing: 'border-box',
+  }
 
   if (verificando) return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16 }}>
@@ -454,7 +467,6 @@ export default function App() {
             </button>
           )}
 
-          {/* ALERTA TOKEN EXPIRADO */}
           {podeNotif && tokenExpirado && permissao === 'granted' && (
             <button onClick={solicitarPermissao} style={{ background: 'var(--red-dim)', border: '1px solid var(--red)', borderRadius: 8, padding: '5px 8px', cursor: 'pointer', color: 'var(--red)', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
               <Zap size={12} />{!isMobile && 'Renovar notif.'}
@@ -494,13 +506,22 @@ export default function App() {
             )}
           </div>
 
+          {/* PERFIL + CHAVE + LOGOUT — desktop */}
           {!isMobile && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, borderLeft: '1px solid var(--border)', paddingLeft: 10 }}>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontSize: 12, fontWeight: 600 }}>{usuario.email.split('@')[0]}</div>
-                <div style={{ fontSize: 10, color: COR_PERFIL[usuario.perfil], fontWeight: 700 }}>{usuario.perfil}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+                  {isAdmin && <ShieldAlert size={10} color="#8b5cf6" />}
+                  <div style={{ fontSize: 10, color: COR_PERFIL[usuario.perfil], fontWeight: 700 }}>{usuario.perfil}</div>
+                </div>
               </div>
-              <button onClick={() => signOut(auth)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 8px', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}>
+              <button onClick={() => setModalSenha(true)} title="Alterar senha"
+                style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 8px', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}>
+                <Key size={14} />
+              </button>
+              <button onClick={() => signOut(auth)}
+                style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 8px', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}>
                 <LogOut size={14} />
               </button>
             </div>
@@ -520,11 +541,21 @@ export default function App() {
           <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 600 }}>{usuario.email.split('@')[0]}</div>
-              <div style={{ fontSize: 11, color: COR_PERFIL[usuario.perfil], fontWeight: 700 }}>{usuario.perfil}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                {isAdmin && <ShieldAlert size={10} color="#8b5cf6" />}
+                <div style={{ fontSize: 11, color: COR_PERFIL[usuario.perfil], fontWeight: 700 }}>{usuario.perfil}</div>
+              </div>
             </div>
-            <button onClick={() => signOut(auth)} style={{ background: 'var(--red-dim)', border: '1px solid var(--red)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: 'var(--red)', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
-              <LogOut size={13} /> Sair
-            </button>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button onClick={() => { setModalSenha(true); setMenuAberto(false) }}
+                style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <Key size={13} /> Senha
+              </button>
+              <button onClick={() => signOut(auth)}
+                style={{ background: 'var(--red-dim)', border: '1px solid var(--red)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: 'var(--red)', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <LogOut size={13} /> Sair
+              </button>
+            </div>
           </div>
           {abasPerfil.map(aba => (
             <button key={aba} onClick={() => navegar(aba)} style={{
@@ -581,13 +612,9 @@ export default function App() {
 
           {!semFiltro.includes(abaSelecionada) && !carregando && !erro && (
             <>
-              {/* DASHBOARD */}
               {abaSelecionada === 'dashboard' && (
                 <>
-                  {/* ── PAINEL TEMPO REAL (Firestore) ── */}
                   <PainelTempoReal compact={compact} />
-
-                  {/* ── FILTRO DE DIA (Sheets) ── */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                     <Calendar size={13} color="var(--text-muted)" />
                     <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Histórico (Sheets):</span>
@@ -606,14 +633,12 @@ export default function App() {
                       ))}
                     </div>
                   </div>
-
                   <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : isTablet ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: compact ? 10 : 16, marginBottom: compact ? 16 : 24 }}>
                     <MetricCard label="Total Docas"  valor={totalDocas}     icon={<Package size={18} />}       cor="#3b82f6" sub={`${dias.filter(d => d !== 'todos').length} dia(s)`} compact={compact} />
                     <MetricCard label="Liberadas"    valor={totalLiberadas} icon={<CheckCircle size={18} />}   cor="#22c55e" sub={`${pctLiberadas}%`} compact={compact} />
                     <MetricCard label="Alertas"      valor={totalAlertas}   icon={<AlertTriangle size={18} />} cor="var(--yellow)" sub="Aguardando" compact={compact} />
                     <MetricCard label="Críticos"     valor={totalCriticos}  icon={<TrendingUp size={18} />}    cor="#ef4444" sub="≥ 5 pend." compact={compact} />
                   </div>
-
                   <div style={{ display: 'grid', gridTemplateColumns: isDesktop ? '2fr 1fr' : '1fr', gap: compact ? 12 : 16 }}>
                     <div style={{ background: 'var(--bg-card)', borderRadius: 14, padding: compact ? 16 : 24, border: '1px solid var(--border)' }}>
                       <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 16, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Evolução Diária</div>
@@ -624,12 +649,11 @@ export default function App() {
                           <YAxis stroke="var(--text-muted)" fontSize={10} tickLine={false} axisLine={false} />
                           <Tooltip contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
                           <Legend iconType="circle" iconSize={8} />
-                          <Bar dataKey="Liberadas" fill="#22c55e" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                          <Bar dataKey="Pendentes" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                          <Bar dataKey="Liberadas" fill="#22c55e" radius={[4,4,0,0]} maxBarSize={40} />
+                          <Bar dataKey="Pendentes" fill="#ef4444" radius={[4,4,0,0]} maxBarSize={40} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
-
                     <div style={{ background: 'var(--bg-card)', borderRadius: 14, padding: compact ? 16 : 24, border: '1px solid var(--border)' }}>
                       <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 16, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Status Geral</div>
                       <ResponsiveContainer width="100%" height={compact ? 140 : 160}>
@@ -653,7 +677,6 @@ export default function App() {
                 </>
               )}
 
-              {/* FILTRO DE DIA — outras abas */}
               {abaSelecionada !== 'dashboard' && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
                   <Calendar size={13} color="var(--text-muted)" />
@@ -675,7 +698,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* TABELA */}
               {abaSelecionada === 'tabela' && (
                 <div style={{ background: 'var(--bg-card)', borderRadius: 14, border: '1px solid var(--border)', overflow: 'hidden' }}>
                   <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
@@ -687,7 +709,7 @@ export default function App() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: compact ? 12 : 13, minWidth: 700 }}>
                       <thead>
                         <tr style={{ background: 'var(--bg-secondary)' }}>
-                          {['Data', 'Doca', 'Remessa', 'P.Exp', 'Frente', 'Dentro', 'Resultado', 'Supervisor', 'Liberado', 'Alerta'].map(col => (
+                          {['Data','Doca','Remessa','P.Exp','Frente','Dentro','Resultado','Supervisor','Liberado','Alerta'].map(col => (
                             <th key={col} style={{ padding: compact ? '10px 12px' : '12px 16px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>{col}</th>
                           ))}
                         </tr>
@@ -716,7 +738,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* ALERTAS */}
               {abaSelecionada === 'alertas' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {dadosFiltrados.filter(d => d.alerta !== '').length === 0 ? (
@@ -747,7 +768,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* APROVAÇÃO */}
               {abaSelecionada === 'aprovacao' && (
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
@@ -777,12 +797,79 @@ export default function App() {
         </div>
       </div>
 
+      {/* ── MODAL ALTERAR SENHA ── */}
+      {modalSenha && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: 16, padding: 28, maxWidth: 420, width: '100%' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Key size={18} color="var(--yellow)" />
+                <h3 style={{ fontSize: 17, fontWeight: 800 }}>Alterar senha</h3>
+              </div>
+              <button onClick={fecharModalSenha} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 22, lineHeight: 1 }}>✕</button>
+            </div>
+
+            {sucSenha ? (
+              <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                <CheckCircle size={44} color="var(--green)" style={{ marginBottom: 12 }} />
+                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Senha alterada com sucesso!</div>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>Use a nova senha no próximo login.</p>
+                <button onClick={fecharModalSenha} style={{ background: 'var(--yellow)', border: 'none', borderRadius: 10, padding: '12px 28px', cursor: 'pointer', fontWeight: 800, fontSize: 14, color: '#1a1a1a' }}>
+                  Fechar
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleAlterarSenha}>
+                {[
+                  { label: 'Senha atual',         val: senhaAtual,    set: setSenhaAtual,    show: mostrarSenhaAtual, toggle: () => setMostrarSenhaAtual(v => !v) },
+                  { label: 'Nova senha',           val: senhaNova,     set: setSenhaNova,     show: mostrarSenhaNova,  toggle: () => setMostrarSenhaNova(v => !v)  },
+                  { label: 'Confirmar nova senha', val: senhaNovaConf, set: setSenhaNovaConf, show: mostrarSenhaNova,  toggle: () => setMostrarSenhaNova(v => !v)  },
+                ].map((f, i) => (
+                  <div key={i} style={{ marginBottom: 14 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{f.label}</label>
+                    <div style={{ position: 'relative' }}>
+                      <input type={f.show ? 'text' : 'password'} value={f.val} onChange={e => f.set(e.target.value)} required
+                        style={INPUT_SENHA}
+                        onFocus={e => e.target.style.borderColor = 'var(--yellow)'}
+                        onBlur={e => e.target.style.borderColor = 'var(--border)'}
+                      />
+                      <button type="button" onClick={f.toggle} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}>
+                        {f.show ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {erroSenha && (
+                  <div style={{ background: 'var(--red-dim)', border: '1px solid var(--red)', borderRadius: 8, padding: '10px 14px', marginBottom: 14, color: 'var(--red)', fontSize: 13 }}>
+                    {erroSenha}
+                  </div>
+                )}
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 6 }}>
+                  <button type="button" onClick={fecharModalSenha}
+                    style={{ padding: '12px', borderRadius: 10, border: '1px solid var(--border)', background: 'none', cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 600 }}>
+                    Cancelar
+                  </button>
+                  <button type="submit" disabled={loadingSenha}
+                    style={{ padding: '12px', borderRadius: 10, border: 'none', background: loadingSenha ? 'var(--border)' : 'var(--yellow)', color: loadingSenha ? 'var(--text-muted)' : '#1a1a1a', fontWeight: 800, cursor: loadingSenha ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    <Key size={15} />{loadingSenha ? 'Salvando...' : 'Alterar senha'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
       <style>{`
         @keyframes spin  { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
         * { -webkit-tap-highlight-color: transparent; }
         input, select, textarea { font-size: 16px !important; }
         #root, body, html { min-height: 100dvh; min-height: 100vh; }
+        .fade-in { animation: fadeIn 0.2s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
       `}</style>
     </div>
   )
