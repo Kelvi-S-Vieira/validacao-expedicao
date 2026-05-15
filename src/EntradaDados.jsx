@@ -572,7 +572,8 @@ export default function EntradaDados({ usuario, conferentes=[], onDadosSalvos, t
     setSalvando(true); setErro('')
     try {
       const hoje    = sessao?.data || new Date().toLocaleDateString('pt-BR', { timeZone:'America/Sao_Paulo' })
-      const abaHoje = hoje.split('/').reverse().join('-')
+      // Formato da aba: DD-MM-AAAA (ex: 12-05-2026) para bater com o regex do App.jsx
+      const abaHoje = hoje.split('/').join('-')
       const docasSalvar = docas.filter(d => ['CONCLUIDO','AGUARD_COORD','ESCALADO','AGUARD_GERENTE'].includes(d.status))
       const linhas = docasSalvar.map(d => [
         d.data||hoje, d.doca, d.remessa, d.horario, d.valDoca||'',

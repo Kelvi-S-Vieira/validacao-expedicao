@@ -56,7 +56,7 @@ async function buscarAbas() {
   const data = await res.json()
   return data.sheets
     .map(s => s.properties.title)
-    .filter(nome => /^\d{2}-\d{2}-\d{4}$/.test(nome))
+    .filter(nome => /^\d{2}-\d{2}-\d{4}$/.test(nome) || /^\d{4}-\d{2}-\d{2}$/.test(nome))
 }
 
 async function buscarDadosAba(nomeAba) {
