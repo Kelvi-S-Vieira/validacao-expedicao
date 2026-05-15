@@ -83,7 +83,12 @@ function normalizarLinha(linha, dataAba) {
     ? (linha['Alerta Enviado'].includes('GERENTE') ? 'GERENTE' : 'COORDENADOR')
     : ''
   const partes        = dataAba.split('-')
-  const dataFormatada = partes.length === 3 ? `${partes[0]}/${partes[1]}` : dataAba
+  // Detecta formato: DD-MM-AAAA (partes[0] <= 31) ou AAAA-MM-DD (partes[0] > 31)
+  const dataFormatada = partes.length === 3
+    ? (Number(partes[0]) > 31
+        ? `${partes[2]}/${partes[1]}/${partes[0].slice(2)}`  // AAAA-MM-DD → DD/MM/AA
+        : `${partes[0]}/${partes[1]}/${partes[2].slice(2)}`) // DD-MM-AAAA → DD/MM/AA
+    : dataAba
   return {
     data: dataFormatada, doca: linha['Doca'] || '',
     remessa: linha['Remessa'] || '', horario: linha['Horario'] || '',
