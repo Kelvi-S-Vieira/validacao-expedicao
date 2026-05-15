@@ -682,7 +682,7 @@ export default function App() {
                     <div style={{ background: 'var(--bg-card)', borderRadius: 14, padding: compact ? 16 : 24, border: '1px solid var(--border)' }}>
                       <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 16, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Evolução Diária</div>
                       <ResponsiveContainer width="100%" height={compact ? 180 : 220}>
-                        <BarChart data={dadosGrafico} barGap={4}>
+                        <BarChart data={dadosGrafico} barGap={4} margin={{ top: 20, right: 8, left: -10, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                           <XAxis dataKey="dia" stroke="var(--text-muted)" fontSize={10} tickLine={false} axisLine={false} />
                           <YAxis stroke="var(--text-muted)" fontSize={10} tickLine={false} axisLine={false} />
