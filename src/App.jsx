@@ -8,12 +8,12 @@ import Relatorio from './Relatorio'
 import EntradaDados from './EntradaDados'
 import Conferentes, { useConferentes } from './Conferentes'
 import DashboardHistorico from './DashboardHistorico'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from 'recharts'
 import {
   AlertTriangle, CheckCircle, Clock, Package, TrendingUp,
   Calendar, Bell, RefreshCw, User, LogOut, Truck,
   ClipboardList, BarChart2, AlertCircle, FileText, PlusCircle, Users,
-  History, Menu, X, Zap, ShieldAlert, Key, Eye, EyeOff
+  History, Menu, X, Zap, ShieldAlert, Key, Eye, EyeOff, Sun, Moon
 } from 'lucide-react'
 import { useFCM } from './useFCM'
 
@@ -297,6 +297,15 @@ export default function App() {
   const [conferentes]                             = useConferentes()
   const [mostrarNotif, setMostrarNotif]           = useState(false)
   const [menuAberto, setMenuAberto]               = useState(false)
+  const [temaClaro, setTemaClaro]               = useState(() => {
+    return localStorage.getItem('gpp_tema') === 'claro'
+  })
+
+  // Aplica classe no html ao montar e ao trocar
+  useEffect(() => {
+    document.documentElement.classList.toggle('tema-claro', temaClaro)
+    localStorage.setItem('gpp_tema', temaClaro ? 'claro' : 'escuro')
+  }, [temaClaro])
 
   const { permissao, notificacoes, marcarLida, limparNotificacoes, solicitarPermissao, tokenExpirado } = useFCM(usuario)
   const notifNaoLidas = notificacoes.filter(n => !n.lida).length
@@ -366,11 +375,11 @@ export default function App() {
   const totalCriticos  = dadosFiltrados.filter(d => d.alerta === 'GERENTE').length
   const pctLiberadas   = totalDocas > 0 ? Math.round(totalLiberadas / totalDocas * 100) : 0
 
-  const dadosGrafico = dias.filter(d => d !== 'todos').map(dia => ({
-    dia,
-    Liberadas: dados.filter(d => d.data === dia && d.liberado === 'SIM').length,
-    Pendentes: dados.filter(d => d.data === dia && d.liberado !== 'SIM').length,
-  }))
+  const dadosGrafico = dias.filter(d => d !== 'todos').map(dia => {
+    const lib = dados.filter(d => d.data === dia && d.liberado === 'SIM').length
+    const pen = dados.filter(d => d.data === dia && d.liberado !== 'SIM').length
+    return { dia, Liberadas: lib, Pendentes: pen, Total: lib + pen }
+  })
 
   const dadosPizza = [
     { name: 'Liberadas', value: totalLiberadas,              cor: '#22c55e' },
@@ -483,6 +492,12 @@ export default function App() {
           <button onClick={carregarDados} disabled={carregando} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
             <RefreshCw size={13} style={{ animation: carregando ? 'spin 1s linear infinite' : 'none' }} />
             {!isMobile && 'Atualizar'}
+          </button>
+
+          <button onClick={() => setTemaClaro(v => !v)} title={temaClaro ? 'Modo escuro' : 'Modo claro'}
+            style={{ background: temaClaro ? 'var(--yellow-dim)' : 'none', border: `1px solid ${temaClaro ? 'var(--yellow)' : 'var(--border)'}`, borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: temaClaro ? 'var(--yellow)' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, transition: 'all 0.2s' }}>
+            {temaClaro ? <Moon size={13} /> : <Sun size={13} />}
+            {!isMobile && (temaClaro ? 'Escuro' : 'Claro')}
           </button>
 
           {podeNotif && permissao !== 'granted' && (
@@ -673,8 +688,12 @@ export default function App() {
                           <YAxis stroke="var(--text-muted)" fontSize={10} tickLine={false} axisLine={false} />
                           <Tooltip contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
                           <Legend iconType="circle" iconSize={8} />
-                          <Bar dataKey="Liberadas" fill="#22c55e" radius={[4,4,0,0]} maxBarSize={40} />
-                          <Bar dataKey="Pendentes" fill="#ef4444" radius={[4,4,0,0]} maxBarSize={40} />
+                          <Bar dataKey="Liberadas" name="Liberadas" fill="#22c55e" radius={[4,4,0,0]} maxBarSize={40}>
+                            <LabelList dataKey="Liberadas" position="top" style={{ fontSize: 10, fontWeight: 700, fill: '#22c55e' }} />
+                          </Bar>
+                          <Bar dataKey="Pendentes" name="Pendentes" fill="#ef4444" radius={[4,4,0,0]} maxBarSize={40}>
+                            <LabelList dataKey="Pendentes" position="top" style={{ fontSize: 10, fontWeight: 700, fill: '#ef4444' }} />
+                          </Bar>
                         </BarChart>
                       </ResponsiveContainer>
                     </div>

@@ -6,6 +6,7 @@
   box-sizing: border-box;
 }
 
+/* ─── TEMA ESCURO (padrão) ──────────────────────── */
 :root {
   --bg-primary:    #0a0a0a;
   --bg-secondary:  #111111;
@@ -29,11 +30,36 @@
   --blue-dim:      #3b82f620;
 }
 
+/* ─── TEMA CLARO ────────────────────────────────── */
+html.tema-claro {
+  --bg-primary:    #f5f5f5;
+  --bg-secondary:  #ebebeb;
+  --bg-card:       #ffffff;
+  --bg-hover:      #e4e4e4;
+  --border:        #d4d4d4;
+  --border-light:  #bbbbbb;
+  --text-primary:  #0f0f0f;
+  --text-secondary:#444444;
+  --text-muted:    #888888;
+  --yellow:        #b8a800;
+  --yellow-dark:   #9a8e00;
+  --yellow-dim:    #F5E64230;
+  --green:         #16a34a;
+  --green-dim:     #16a34a18;
+  --red:           #dc2626;
+  --red-dim:       #dc262618;
+  --orange:        #ea6800;
+  --orange-dim:    #ea680018;
+  --blue:          #2563eb;
+  --blue-dim:      #2563eb18;
+}
+
 body {
   background: var(--bg-primary);
   color: var(--text-primary);
   font-family: 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
+  transition: background 0.2s, color 0.2s;
 }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -41,61 +67,41 @@ body {
 ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #444; }
 
-@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+@keyframes spin    { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes fadeIn  { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pulse   { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
 .fade-in { animation: fadeIn 0.3s ease; }
+
 /* ─── RESPONSIVIDADE MOBILE ─────────────────────── */
 @media (max-width: 768px) {
-
-  /* Header */
   .header-logo span { display: none; }
-
-  /* Padding geral */
   div[style*="padding: '24px 32px'"] { padding: 16px !important; }
-
-  /* Cards de métrica — 2 colunas no mobile */
   div[style*="repeat(4, 1fr)"] {
     grid-template-columns: repeat(2, 1fr) !important;
     gap: 10px !important;
   }
-
-  /* Gráficos — full width */
-  div[style*="2fr 1fr"] {
-    grid-template-columns: 1fr !important;
-  }
-
-  /* Tabela — scroll horizontal */
+  div[style*="2fr 1fr"] { grid-template-columns: 1fr !important; }
   table { font-size: 11px !important; }
   th, td { padding: 8px 10px !important; }
-
-  /* Navegação — scroll horizontal */
   nav, div[style*="overflowX: 'auto'"] {
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch;
   }
-
-  /* Header — ocultar textos secundários */
   .header-update { display: none !important; }
 }
 
 @media (max-width: 480px) {
-  /* Cards — 1 coluna em telas muito pequenas */
   div[style*="repeat(4, 1fr)"],
   div[style*="repeat(5, 1fr)"] {
     grid-template-columns: repeat(2, 1fr) !important;
   }
-
-  /* Font sizes menores */
   div[style*="fontSize: 36"] { font-size: 28px !important; }
   div[style*="fontSize: 28"] { font-size: 22px !important; }
 }
 
 /* Previne zoom em inputs no iOS */
-input, select, textarea {
-  font-size: 16px !important;
-}
+input, select, textarea { font-size: 16px !important; }
 
 /* Touch targets maiores */
 button { min-height: 40px; }

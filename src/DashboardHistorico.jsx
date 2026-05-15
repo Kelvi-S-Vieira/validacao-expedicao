@@ -59,6 +59,27 @@ const TOTAIS_2026 = DIST_2026.reduce((acc, row) => {
   return acc
 }, {})
 
+// ─── PENDÊNCIAS REAIS (Exp - Frente - Dentro) ────────────
+// Calculado a partir da Planilha3 da base histórica
+// resultado = Pend.Expedição - Pend.Frente Doca - Pend.Dentro Doca (mín. 0)
+const PEND_REAL_2025 = [
+  { mes: 'jan', total: 809,  pendExp: 1769,  frente: 354,  dentro: 181,  resultado: 1220, comPend: 577,  semPend: 232, mais5: 36,  pctLocalizado: 30 },
+  { mes: 'fev', total: 932,  pendExp: 3596,  frente: 609,  dentro: 353,  resultado: 2625, comPend: 766,  semPend: 166, mais5: 162, pctLocalizado: 27 },
+  { mes: 'mar', total: 965,  pendExp: 5885,  frente: 782,  dentro: 703,  resultado: 4354, comPend: 853,  semPend: 112, mais5: 351, pctLocalizado: 25 },
+  { mes: 'abr', total: 1056, pendExp: 10417, frente: 1078, dentro: 880,  resultado: 8389, comPend: 1024, semPend: 32,  mais5: 732, pctLocalizado: 19 },
+  { mes: 'mai', total: 1065, pendExp: 8230,  frente: 1251, dentro: 1140, resultado: 5798, comPend: 983,  semPend: 82,  mais5: 500, pctLocalizado: 29 },
+  { mes: 'jun', total: 833,  pendExp: 4179,  frente: 570,  dentro: 653,  resultado: 2945, comPend: 729,  semPend: 104, mais5: 233, pctLocalizado: 29 },
+  { mes: 'jul', total: 413,  pendExp: 2058,  frente: 348,  dentro: 546,  resultado: 1162, comPend: 362,  semPend: 51,  mais5: 67,  pctLocalizado: 43 },
+  { mes: 'ago', total: 848,  pendExp: 2114,  frente: 484,  dentro: 262,  resultado: 1370, comPend: 622,  semPend: 226, mais5: 52,  pctLocalizado: 35 },
+  { mes: 'set', total: 1094, pendExp: 3603,  frente: 878,  dentro: 504,  resultado: 2197, comPend: 902,  semPend: 192, mais5: 80,  pctLocalizado: 38 },
+  { mes: 'out', total: 1188, pendExp: 5235,  frente: 1036, dentro: 882,  resultado: 3279, comPend: 1041, semPend: 147, mais5: 204, pctLocalizado: 37 },
+  { mes: 'nov', total: 1084, pendExp: 3989,  frente: 1010, dentro: 703,  resultado: 2240, comPend: 865,  semPend: 219, mais5: 106, pctLocalizado: 43 },
+  { mes: 'dez', total: 850,  pendExp: 2684,  frente: 654,  dentro: 447,  resultado: 1573, comPend: 695,  semPend: 155, mais5: 57,  pctLocalizado: 41 },
+]
+
+// 2026: será alimentado pelos dados reais do Sheets (dadosRecentes)
+// Os totais aparecerão automaticamente conforme os dados são salvos
+
 const corPct = (pct) => pct >= 90 ? '#ef4444' : pct >= 80 ? '#f97316' : '#22c55e'
 
 const LabelTopo = ({ x, y, width, value }) => {
@@ -187,6 +208,43 @@ export default function DashboardHistorico({ dadosRecentes = [] }) {
     }
     return Object.values(porDia).sort((a, b) => toSort(a.dia).localeCompare(toSort(b.dia))).slice(-5)
   })()
+
+  // Agrupa pendências reais de 2026 a partir dos dadosRecentes do Sheets
+  const pendReal2026 = (() => {
+    if (!dadosRecentes.length) return []
+    const porMes = {}
+    dadosRecentes.forEach(row => {
+      if (!row.data) return
+      // Extrai mês da data DD/MM/AA ou DD/MM/AAAA
+      const partes = row.data.split('/')
+      if (partes.length < 2) return
+      const mesNum = parseInt(partes[1])
+      const anoNum = parseInt(partes[2]) < 100 ? 2000 + parseInt(partes[2]) : parseInt(partes[2])
+      if (anoNum !== 2026) return
+      const meses = ['','jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez']
+      const mesKey = meses[mesNum]
+      if (!mesKey) return
+      if (!porMes[mesKey]) porMes[mesKey] = { mes: mesKey, total: 0, pendExp: 0, frente: 0, dentro: 0, resultado: 0, comPend: 0, semPend: 0 }
+      const exp    = Number(row.pendExp)     || 0
+      const frt    = Number(row.pendFrente)  || 0
+      const dnt    = Number(row.pendDentro)  || 0
+      const res    = Math.max(0, exp - frt - dnt)
+      porMes[mesKey].total++
+      porMes[mesKey].pendExp    += exp
+      porMes[mesKey].frente     += frt
+      porMes[mesKey].dentro     += dnt
+      porMes[mesKey].resultado  += res
+      if (res > 0) porMes[mesKey].comPend++
+      else porMes[mesKey].semPend++
+      if (res >= 5) porMes[mesKey].mais5 = (porMes[mesKey].mais5 || 0) + 1
+    })
+    return Object.values(porMes).sort((a, b) => {
+      const ordem = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez']
+      return ordem.indexOf(a.mes) - ordem.indexOf(b.mes)
+    })
+  })()
+
+  const pendRealAtual = ano === '2025' ? PEND_REAL_2025 : pendReal2026
 
   const comparativo = ['jan','fev','mar','abr'].map(mes => {
     const m25 = MENSAL_2025.find(m => m.mes === mes)
@@ -418,6 +476,143 @@ export default function DashboardHistorico({ dadosRecentes = [] }) {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+          </>
+        )}
+      </CardSecao>
+
+      {/* PAINEL PENDÊNCIAS REAIS */}
+      <CardSecao titulo={`Pendências reais expedidas — ${ano} (Exp − Frente − Dentro)`} badge={ano}>
+        {pendRealAtual.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 13, marginBottom: 6 }}>Dados de 2026 aparecerão conforme as validações forem salvas no Sheets</div>
+          </div>
+        ) : (
+          <>
+            {/* Cards resumo */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 16 }}>
+              {[
+                {
+                  label: 'Total pendências expedidas',
+                  valor: pendRealAtual.reduce((s, m) => s + m.pendExp, 0).toLocaleString('pt-BR'),
+                  cor: '#3b82f6', sub: 'total encontrado nas docas'
+                },
+                {
+                  label: 'Localizado (frente + dentro)',
+                  valor: pendRealAtual.reduce((s, m) => s + m.frente + m.dentro, 0).toLocaleString('pt-BR'),
+                  cor: '#22c55e',
+                  sub: `${Math.round(pendRealAtual.reduce((s,m)=>s+m.frente+m.dentro,0) / Math.max(1,pendRealAtual.reduce((s,m)=>s+m.pendExp,0)) * 100)}% do total`
+                },
+                {
+                  label: 'Resultado real (saiu da doca)',
+                  valor: pendRealAtual.reduce((s, m) => s + m.resultado, 0).toLocaleString('pt-BR'),
+                  cor: '#ef4444',
+                  sub: `${Math.round(pendRealAtual.reduce((s,m)=>s+m.resultado,0) / Math.max(1,pendRealAtual.reduce((s,m)=>s+m.pendExp,0)) * 100)}% do total`
+                },
+              ].map((c, i) => (
+                <div key={i} style={{ background: 'var(--bg-card)', borderRadius: 12, padding: '14px 16px', border: `1px solid ${c.cor}33`, position: 'relative', overflow: 'hidden' }}>
+                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: c.cor }} />
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>{c.label}</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: c.cor, lineHeight: 1 }}>{c.valor}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{c.sub}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Gráfico empilhado: localizado vs resultado real */}
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10 }}>
+              Cada barra mostra o total de pendências encontradas — verde = localizado (frente+dentro), vermelho = saiu da doca
+            </div>
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={pendRealAtual} barGap={2} margin={{ top: 24, right: 8, left: -10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="mes" stroke="var(--text-muted)" fontSize={10} tickLine={false} axisLine={false} />
+                <YAxis stroke="var(--text-muted)" fontSize={10} tickLine={false} axisLine={false} width={45} tickFormatter={v => v.toLocaleString('pt-BR')} />
+                <Tooltip content={({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null
+                  const d = pendRealAtual.find(m => m.mes === label)
+                  const loc = (d?.frente || 0) + (d?.dentro || 0)
+                  const pctLoc = d?.pendExp > 0 ? Math.round(loc / d.pendExp * 100) : 0
+                  return (
+                    <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', fontSize: 12 }}>
+                      <div style={{ fontWeight: 700, marginBottom: 6 }}>{label}</div>
+                      <div style={{ color: '#3b82f6' }}>Total expedição: {d?.pendExp?.toLocaleString('pt-BR')}</div>
+                      <div style={{ color: '#22c55e' }}>Localizado: {loc.toLocaleString('pt-BR')} ({pctLoc}%)</div>
+                      <div style={{ color: '#ef4444' }}>Resultado real: {d?.resultado?.toLocaleString('pt-BR')}</div>
+                      <div style={{ color: 'var(--text-muted)', marginTop: 4 }}>Docas: {d?.total}</div>
+                    </div>
+                  )
+                }} />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="frente" name="Frente doca"    stackId="a" fill="#22c55e" maxBarSize={40} />
+                <Bar dataKey="dentro" name="Dentro doca"    stackId="a" fill="#86efac" maxBarSize={40} />
+                <Bar dataKey="resultado" name="Resultado real" stackId="a" fill="#ef4444" radius={[4,4,0,0]} maxBarSize={40}>
+                  <LabelList dataKey="resultado" position="top" style={{ fontSize: 9, fontWeight: 700, fill: 'var(--text-muted)' }} formatter={v => v?.toLocaleString('pt-BR')} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+
+            {/* Tabela resumo mensal */}
+            <div style={{ overflowX: 'auto', marginTop: 16 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, minWidth: 600 }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-secondary)' }}>
+                    {['Mês','Docas','Pend. Exp.','Frente','Dentro','Localizado','Resultado real','≥5 pend.','% Localizado'].map(c => (
+                      <th key={c} style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--text-muted)', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.4px', whiteSpace: 'nowrap' }}>{c}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendRealAtual.map((row, i) => {
+                    const loc = row.frente + row.dentro
+                    const pctLoc = row.pendExp > 0 ? Math.round(loc / row.pendExp * 100) : 0
+                    const corRes = row.resultado > 1000 ? '#ef4444' : row.resultado > 500 ? '#f97316' : '#22c55e'
+                    return (
+                      <tr key={i} style={{ borderTop: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'var(--bg-secondary)' }}>
+                        <td style={{ padding: '8px 10px', fontWeight: 700, color: corAno, textAlign: 'center' }}>{row.mes}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--text-muted)' }}>{row.total}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 600, color: '#3b82f6' }}>{row.pendExp.toLocaleString('pt-BR')}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', color: '#22c55e' }}>{row.frente.toLocaleString('pt-BR')}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', color: '#86efac' }}>{row.dentro.toLocaleString('pt-BR')}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#22c55e' }}>{loc.toLocaleString('pt-BR')}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 900, color: corRes }}>{row.resultado.toLocaleString('pt-BR')}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                          <span style={{ background: (row.mais5||0) > 0 ? '#ef444420' : 'var(--bg-secondary)', color: (row.mais5||0) > 0 ? '#ef4444' : 'var(--text-muted)', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>{(row.mais5||0)}</span>
+                        </td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                          <span style={{ background: pctLoc >= 40 ? '#22c55e20' : '#f9731620', color: pctLoc >= 40 ? '#22c55e' : '#f97316', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>{pctLoc}%</span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  {/* Total geral */}
+                  {(() => {
+                    const tExp  = pendRealAtual.reduce((s,m) => s + m.pendExp, 0)
+                    const tFrt  = pendRealAtual.reduce((s,m) => s + m.frente, 0)
+                    const tDnt  = pendRealAtual.reduce((s,m) => s + m.dentro, 0)
+                    const tLoc  = tFrt + tDnt
+                    const tRes  = pendRealAtual.reduce((s,m) => s + m.resultado, 0)
+                    const tPct  = tExp > 0 ? Math.round(tLoc / tExp * 100) : 0
+                    return (
+                      <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--bg-secondary)', fontWeight: 800 }}>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 800 }}>Total</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>{pendRealAtual.reduce((s,m)=>s+m.total,0)}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', color: '#3b82f6' }}>{tExp.toLocaleString('pt-BR')}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', color: '#22c55e' }}>{tFrt.toLocaleString('pt-BR')}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', color: '#86efac' }}>{tDnt.toLocaleString('pt-BR')}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', color: '#22c55e' }}>{tLoc.toLocaleString('pt-BR')}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', color: '#ef4444' }}>{tRes.toLocaleString('pt-BR')}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                          <span style={{ background: '#ef444420', color: '#ef4444', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>{pendRealAtual.reduce((s,m)=>s+(m.mais5||0),0)}</span>
+                        </td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                          <span style={{ background: '#22c55e20', color: '#22c55e', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>{tPct}%</span>
+                        </td>
+                      </tr>
+                    )
+                  })()}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
       </CardSecao>
